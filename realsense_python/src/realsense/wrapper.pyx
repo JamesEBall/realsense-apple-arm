@@ -319,9 +319,9 @@ cdef class PyRealSense:
         cdef frame depth_frame
         cdef frame ir_frame
         cdef frame color_frame
-        cdef const uint16_t* depth_data
-        cdef const uint8_t* ir_data
-        cdef const uint8_t* color_data
+        cdef const uint16_t* depth_data = NULL
+        cdef const uint8_t* ir_data = NULL
+        cdef const uint8_t* color_data = NULL
         cdef np.ndarray[np.uint16_t, ndim=2] depth_array
         cdef np.ndarray[np.uint8_t, ndim=2] ir_array
         cdef np.ndarray[np.uint8_t, ndim=3] color_array
@@ -335,53 +335,77 @@ cdef class PyRealSense:
             frames = deref(self.pipe).wait_for_frames(5000)  # 5 second timeout
             print("Got frameset")  # Debug print
             
-            depth_frame = frames.get_depth_frame()
-            if self.enable_ir:
-                ir_frame = frames.get_infrared_frame()
-            if self.enable_color:
-                color_frame = frames.get_color_frame()
-            print("Extracted individual frames")  # Debug print
-            
-            # Get frame data
-            depth_data = <const uint16_t*>depth_frame.get_data()
-            depth_array = np.zeros((self.height, self.width), dtype=np.uint16)
-            memcpy(depth_array.data, depth_data, self.width * self.height * sizeof(uint16_t))
-            
-            # Apply depth filtering
-            if self.min_depth > 0 or self.max_depth < 10.0:
-                # Convert depth values to meters (assuming Z16 format)
-                depth_meters = depth_array.astype(np.float32) / 1000.0
-                # Create mask for values outside the range
-                mask = (depth_meters < self.min_depth) | (depth_meters > self.max_depth)
-                # Set invalid values to 0
-                depth_array[mask] = 0
-            
-            result = {'depth': depth_array}
-            
-            if self.enable_ir:
-                ir_data = <const uint8_t*>ir_frame.get_data()
-                ir_array = np.zeros((self.height, self.width), dtype=np.uint8)
-                memcpy(ir_array.data, ir_data, self.width * self.height * sizeof(uint8_t))
-                result['infrared'] = ir_array
-            
-            if self.enable_color:
-                color_data = <const uint8_t*>color_frame.get_data()
-                if self.camera_model in [D415, D435, D435i, D435f, D435if, D450, D455, D455f, D456]:
-                    # YUYV format for RGB camera
-                    color_array = np.zeros((self.height, self.width, 2), dtype=np.uint8)
-                    memcpy(color_array.data, color_data, self.width * self.height * 2 * sizeof(uint8_t))
-                else:
-                    # UYVY format for left imager
-                    color_array = np.zeros((self.height, self.width, 2), dtype=np.uint8)
-                    memcpy(color_array.data, color_data, self.width * self.height * 2 * sizeof(uint8_t))
-                result['color'] = color_array
-            
-            print("Data copied to numpy arrays")  # Debug print
-            return result
+            try:
+                # Get depth frame
+                try:
+                    depth_frame = frames.get_depth_frame()
+                    depth_data = <const uint16_t*>depth_frame.get_data()
+                except:
+                    print("Warning: Failed to get depth frame, retrying...")
+                    return None
+                    
+                if depth_data == NULL:
+                    print("Warning: Failed to get depth frame data, retrying...")
+                    return None
+                    
+                depth_array = np.zeros((self.height, self.width), dtype=np.uint16)
+                memcpy(depth_array.data, depth_data, self.width * self.height * sizeof(uint16_t))
+                
+                # Apply depth filtering
+                if self.min_depth > 0 or self.max_depth < 10.0:
+                    # Convert depth values to meters (assuming Z16 format)
+                    depth_meters = depth_array.astype(np.float32) / 1000.0
+                    # Create mask for values outside the range
+                    mask = (depth_meters < self.min_depth) | (depth_meters > self.max_depth)
+                    # Set invalid values to 0
+                    depth_array[mask] = 0
+                
+                result = {'depth': depth_array}
+                
+                # Get IR frame if enabled
+                if self.enable_ir:
+                    try:
+                        ir_frame = frames.get_infrared_frame()
+                        ir_data = <const uint8_t*>ir_frame.get_data()
+                    except:
+                        print("Warning: Failed to get IR frame")
+                        ir_data = NULL
+                        
+                    if ir_data != NULL:
+                        ir_array = np.zeros((self.height, self.width), dtype=np.uint8)
+                        memcpy(ir_array.data, ir_data, self.width * self.height * sizeof(uint8_t))
+                        result['infrared'] = ir_array
+                
+                # Get color frame if enabled
+                if self.enable_color:
+                    try:
+                        color_frame = frames.get_color_frame()
+                        color_data = <const uint8_t*>color_frame.get_data()
+                    except:
+                        print("Warning: Failed to get color frame")
+                        color_data = NULL
+                        
+                    if color_data != NULL:
+                        if self.camera_model in [D415, D435, D435i, D435f, D435if, D450, D455, D455f, D456]:
+                            # YUYV format for RGB camera
+                            color_array = np.zeros((self.height, self.width, 2), dtype=np.uint8)
+                            memcpy(color_array.data, color_data, self.width * self.height * 2 * sizeof(uint8_t))
+                        else:
+                            # UYVY format for left imager
+                            color_array = np.zeros((self.height, self.width, 2), dtype=np.uint8)
+                            memcpy(color_array.data, color_data, self.width * self.height * 2 * sizeof(uint8_t))
+                        result['color'] = color_array
+                
+                print("Data copied to numpy arrays")  # Debug print
+                return result
+                
+            except Exception as e:
+                print(f"Error processing frames: {str(e)}")  # Debug print
+                return None
             
         except Exception as e:
             print(f"Error in get_frames: {str(e)}")  # Debug print
-            raise
+            return None
     
     @property
     def frame_width(self):
