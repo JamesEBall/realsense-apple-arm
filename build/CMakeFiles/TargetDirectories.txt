@@ -1,3 +1,0 @@
-/Users/jamesball/Documents/GitHub/realsense_applesilicon/build/CMakeFiles/realsense_test.dir
-/Users/jamesball/Documents/GitHub/realsense_applesilicon/build/CMakeFiles/edit_cache.dir
-/Users/jamesball/Documents/GitHub/realsense_applesilicon/build/CMakeFiles/rebuild_cache.dir
