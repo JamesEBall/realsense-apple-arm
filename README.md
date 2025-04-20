@@ -2,6 +2,8 @@
 
 This C++ application demonstrates the use of an Intel RealSense depth camera (D421) to capture and display depth and infrared (IR) images in real-time. The application shows both the depth map (color-coded) and IR image side by side, with a depth scale visualization.
 
+![Example Output](images/example_image.png)
+
 ## Supported Platforms
 
 - macOS (Apple Silicon & Intel)
