@@ -30,10 +30,13 @@
 *.exe
 *.out
 *.app
+
+# macOS system files
 .DS_Store
-build/.DS_Store
-build/CMakeFiles/.DS_Store
-build/CMakeFiles/4.0.1/.DS_Store
+**/.DS_Store
 
 # Build directory
 build/
+
+# VS Code
+.vscode/
