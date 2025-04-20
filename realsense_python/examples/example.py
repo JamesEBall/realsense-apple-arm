@@ -184,7 +184,16 @@ def main():
                 elif gesture == "thumbs_down" and recording:
                     # Stop recording
                     recording = False
-                    print(f"\nStopped recording. Saved {frame_idx} frames to {output_dir}")
+                    duration = time.time() - start_time
+                    if duration >= 5.0:
+                        print(f"\nStopped recording. Saved {frame_idx} frames to {output_dir}")
+                    else:
+                        print(f"\nRecording too short ({duration:.1f}s). Deleting {frame_idx} frames...")
+                        if output_dir and os.path.exists(output_dir):
+                            for file in os.listdir(output_dir):
+                                os.remove(os.path.join(output_dir, file))
+                            os.rmdir(output_dir)
+                        output_dir = None
                 elif gesture == "open_palm" and recording:
                     # Cancel recording
                     recording = False
