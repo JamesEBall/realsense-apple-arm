@@ -7,7 +7,7 @@ set(CMAKE_DEPENDS_GENERATOR "Unix Makefiles")
 # The top level Makefile was generated from the following files:
 set(CMAKE_MAKEFILE_DEPENDS
   "CMakeCache.txt"
-  "/Users/jamesball/Documents/GitHub/realsense/realsense_applesilicon/CMakeLists.txt"
+  "/Users/jamesball/Documents/GitHub/realsense_applesilicon/CMakeLists.txt"
   "CMakeFiles/4.0.1/CMakeCCompiler.cmake"
   "CMakeFiles/4.0.1/CMakeCXXCompiler.cmake"
   "CMakeFiles/4.0.1/CMakeSystem.cmake"
@@ -15,10 +15,6 @@ set(CMAKE_MAKEFILE_DEPENDS
   "/opt/homebrew/lib/cmake/opencv4/OpenCVConfig.cmake"
   "/opt/homebrew/lib/cmake/opencv4/OpenCVModules-release.cmake"
   "/opt/homebrew/lib/cmake/opencv4/OpenCVModules.cmake"
-  "/opt/homebrew/lib/cmake/realsense2/realsense2Config.cmake"
-  "/opt/homebrew/lib/cmake/realsense2/realsense2ConfigVersion.cmake"
-  "/opt/homebrew/lib/cmake/realsense2/realsense2Targets-release.cmake"
-  "/opt/homebrew/lib/cmake/realsense2/realsense2Targets.cmake"
   "/opt/homebrew/share/cmake/Modules/CMakeCCompiler.cmake.in"
   "/opt/homebrew/share/cmake/Modules/CMakeCCompilerABI.c"
   "/opt/homebrew/share/cmake/Modules/CMakeCInformation.cmake"
@@ -130,6 +126,10 @@ set(CMAKE_MAKEFILE_DEPENDS
   "/opt/homebrew/share/cmake/Modules/Platform/Linker/Apple-AppleClang-CXX.cmake"
   "/opt/homebrew/share/cmake/Modules/Platform/Linker/Apple-AppleClang.cmake"
   "/opt/homebrew/share/cmake/Modules/Platform/UnixPaths.cmake"
+  "/usr/local/lib/cmake/realsense2/realsense2Config.cmake"
+  "/usr/local/lib/cmake/realsense2/realsense2ConfigVersion.cmake"
+  "/usr/local/lib/cmake/realsense2/realsense2Targets-release.cmake"
+  "/usr/local/lib/cmake/realsense2/realsense2Targets.cmake"
   )
 
 # The corresponding makefile is:

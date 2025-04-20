@@ -30,3 +30,10 @@
 *.exe
 *.out
 *.app
+.DS_Store
+build/.DS_Store
+build/CMakeFiles/.DS_Store
+build/CMakeFiles/4.0.1/.DS_Store
+
+# Build directory
+build/

@@ -105,17 +105,6 @@ void find_max_depth(const cv::Mat& depth_image, int& max_depth) {
 
 // Function to apply image processing
 void process_images(cv::Mat& depth_image, cv::Mat& ir_image) {
-    // Convert depth image to float for bilateral filtering
-    cv::Mat depth_float;
-    depth_image.convertTo(depth_float, CV_32F);
-    
-    // Apply bilateral filter to the float image
-    cv::Mat filtered_depth;
-    cv::bilateralFilter(depth_float, filtered_depth, 5, 50, 50);
-    
-    // Convert back to original format
-    filtered_depth.convertTo(depth_image, CV_16UC1);
-
     // Find current max depth for visualization
     int max_depth;
     find_max_depth(depth_image, max_depth);
