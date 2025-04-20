@@ -1,10 +1,23 @@
 import cv2
 import numpy as np
+import argparse
 from realsense.wrapper import PyRealSense
 
 def main():
-    # Create RealSense instance with only depth and IR enabled
-    rs = PyRealSense(enable_color=False, enable_ir=True)  # Disable color stream for now
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='RealSense Depth Camera Example')
+    parser.add_argument('--min-depth', type=float, default=0.0, help='Minimum depth in meters')
+    parser.add_argument('--max-depth', type=float, default=10.0, help='Maximum depth in meters')
+    parser.add_argument('--enable-color', action='store_true', help='Enable color stream')
+    args = parser.parse_args()
+    
+    # Create RealSense instance with depth filtering
+    rs = PyRealSense(
+        enable_color=args.enable_color,
+        enable_ir=True,
+        min_depth=args.min_depth,
+        max_depth=args.max_depth
+    )
     
     try:
         # Start the camera
@@ -15,6 +28,7 @@ def main():
         print(f"USB Mode: {'3.1' if rs.is_usb3_mode else '2.0'}")
         print(f"Frame Rate: {rs.frame_rate}")
         print(f"Resolution: {rs.frame_width}x{rs.frame_height}")
+        print(f"Depth Range: {args.min_depth:.2f}m to {args.max_depth:.2f}m")
         
         while True:
             # Get frames

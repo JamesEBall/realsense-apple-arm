@@ -149,8 +149,10 @@ cdef class PyRealSense:
     cdef bint enable_imu
     cdef CameraModel camera_model
     cdef bint is_usb3
+    cdef float min_depth
+    cdef float max_depth
     
-    def __cinit__(self, width=640, height=480, framerate=30, enable_color=False, enable_ir=True, enable_imu=False):
+    def __cinit__(self, width=640, height=480, framerate=30, enable_color=False, enable_ir=True, enable_imu=False, min_depth=0.0, max_depth=10.0):
         print("Initializing RealSense...")  # Debug print
         self.width = width
         self.height = height
@@ -160,6 +162,8 @@ cdef class PyRealSense:
         self.enable_imu = enable_imu
         self.running = False
         self.is_usb3 = True  # Default to USB 3.1 mode
+        self.min_depth = min_depth
+        self.max_depth = max_depth
         
         try:
             self.ctx = new context()
@@ -342,6 +346,15 @@ cdef class PyRealSense:
             depth_data = <const uint16_t*>depth_frame.get_data()
             depth_array = np.zeros((self.height, self.width), dtype=np.uint16)
             memcpy(depth_array.data, depth_data, self.width * self.height * sizeof(uint16_t))
+            
+            # Apply depth filtering
+            if self.min_depth > 0 or self.max_depth < 10.0:
+                # Convert depth values to meters (assuming Z16 format)
+                depth_meters = depth_array.astype(np.float32) / 1000.0
+                # Create mask for values outside the range
+                mask = (depth_meters < self.min_depth) | (depth_meters > self.max_depth)
+                # Set invalid values to 0
+                depth_array[mask] = 0
             
             result = {'depth': depth_array}
             
