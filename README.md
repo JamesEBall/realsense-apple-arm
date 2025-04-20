@@ -58,6 +58,14 @@ source venv/bin/activate
 pip install -e .
 ```
 
+> **Important Note**: When running RealSense applications with pyenv on macOS, you must use `sudo` or you will encounter permission errors. This is because RealSense cameras require elevated permissions to access USB devices. For example:
+>
+> ```bash
+> sudo pyenv exec python example.py
+> ```
+>
+> Without sudo, you may get "Access denied" or "Device not found" errors when trying to access the camera.
+
 ## Usage
 
 ### Python Interface
@@ -75,11 +83,11 @@ try:
     while True:
         # Get depth and IR frames
         depth_frame, ir_frame = camera.get_frames()
-      
+    
         # Process frames (example with OpenCV)
         cv2.imshow('Depth', depth_frame)
         cv2.imshow('IR', ir_frame)
-      
+    
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 finally:
