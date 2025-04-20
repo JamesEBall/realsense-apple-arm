@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "Cython>=0.29.0", "numpy>=1.19.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "realsense"
+version = "0.1.0"
+description = "Python wrapper for Intel RealSense cameras on Apple Silicon"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Your Name", email = "your.email@example.com"},
+]
+dependencies = [
+    "numpy>=1.19.0",
+    "opencv-python>=4.5.0",
+    "cython>=0.29.0",
+] 
