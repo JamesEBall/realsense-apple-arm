@@ -165,6 +165,8 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+docs/html/
+docs/xml/
 
 # PyBuilder
 target/
@@ -213,3 +215,35 @@ venv.bak/
 recordings/
 *.npy
 *.txt
+
+# Project-specific virtual environments
+venv*/
+.venv*/
+examples/venv*/
+realsense_python/examples/venv*/
+
+# Generated C++ files from Cython
+realsense_python/src/realsense/wrapper.cpp
+
+# Documentation build
+docs/_build/
+docs/html/
+docs/xml/
+
+# Visual Studio Code settings
+.vscode/settings.json
+.vscode/launch.json
+
+# PyCharm project settings
+.idea/
+*.iml
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+._*

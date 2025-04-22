@@ -3,15 +3,25 @@ import numpy as np
 import argparse
 import os
 import time
-from datetime import datetime
 from realsense.wrapper import PyRealSense
-import mediapipe as mp
-from transformers import BlipProcessor, BlipForConditionalGeneration
-import torch
-from PIL import Image
-from typing import Optional
 import logging
 import sys
+
+# Parse arguments first to check if hand tracking is disabled
+parser = argparse.ArgumentParser(description='RealSense Depth Camera Example')
+parser.add_argument('--no-hand-tracking', action='store_true', help='Disable hand tracking and gesture detection')
+args, _ = parser.parse_known_args()
+
+# Import mediapipe only if hand tracking is enabled
+mp = None
+if not args.no_hand_tracking:
+    try:
+        import mediapipe as mp
+        print("MediaPipe imported successfully")
+    except ImportError:
+        print("WARNING: MediaPipe could not be imported. Hand tracking will be disabled.")
+        args.no_hand_tracking = True
+        mp = None
 
 # Configure logging to suppress most messages
 logging.basicConfig(level=logging.ERROR)
@@ -39,26 +49,14 @@ realsense_logger.setLevel(logging.ERROR)
 logger = logging.getLogger('depth_app')
 logger.setLevel(logging.INFO)
 
-# Initialize BLIP model only if needed
-print("Checking for LLM model requirement...")
-processor = None
-model = None
-device = None
-
-def initialize_blip_model():
-    """Initialize BLIP model for scene description (only when needed)"""
-    global processor, model, device
-    if processor is None or model is None:
-        print("Loading BLIP model...")
-        from transformers import BlipProcessor, BlipForConditionalGeneration
-        processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-        model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
-        device = "mps" if torch.backends.mps.is_available() else "cpu"
-        model = model.to(device)
-        print(f"Using device: {device}")
-
 def draw_hand_landmarks(image, results, color=(0, 255, 0)):
     """Draw hand landmarks and connections on the image."""
+    if mp is None or results is None:
+        # If MediaPipe is not available, return the image as is
+        if len(image.shape) == 2:
+            return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        return image
+        
     mp_hands = mp.solutions.hands
     mp_drawing = mp.solutions.drawing_utils
     mp_drawing_styles = mp.solutions.drawing_styles
@@ -82,6 +80,10 @@ def draw_hand_landmarks(image, results, color=(0, 255, 0)):
 
 def detect_gesture(ir_frame, hands):
     """Detect hand gestures using MediaPipe Hands."""
+    if mp is None or hands is None:
+        # If MediaPipe is not available, return None
+        return None, None
+        
     # Convert IR frame to RGB for MediaPipe
     ir_rgb = cv2.cvtColor(ir_frame, cv2.COLOR_GRAY2RGB)
     
@@ -91,112 +93,8 @@ def detect_gesture(ir_frame, hands):
     # Debug print for hand detection
     if results.multi_hand_landmarks:
         logger.debug(f"Detected {len(results.multi_hand_landmarks)} hands")
-        
-        # Check for thumbs up gesture
-        if len(results.multi_hand_landmarks) == 2:
-            thumbs_up_count = 0
-            thumbs_down_count = 0
-            open_palm_count = 0
-            
-            for hand_landmarks in results.multi_hand_landmarks:
-                # Get thumb tip and base
-                thumb_tip = hand_landmarks.landmark[4]
-                thumb_base = hand_landmarks.landmark[2]
-                
-                # Get middle finger pip (middle joint) for reference
-                middle_pip = hand_landmarks.landmark[10]
-                
-                # Get all finger tips
-                index_tip = hand_landmarks.landmark[8]
-                middle_tip = hand_landmarks.landmark[12]
-                ring_tip = hand_landmarks.landmark[16]
-                pinky_tip = hand_landmarks.landmark[20]
-                
-                # Check if thumb is pointing up
-                if thumb_tip.y < thumb_base.y and thumb_tip.y < middle_pip.y:
-                    thumbs_up_count += 1
-                # Check if thumb is pointing down
-                elif thumb_tip.y > thumb_base.y and thumb_tip.y > middle_pip.y:
-                    thumbs_down_count += 1
-                
-                # Check for open palm (all fingers extended)
-                if (index_tip.y < middle_pip.y and 
-                    middle_tip.y < middle_pip.y and 
-                    ring_tip.y < middle_pip.y and 
-                    pinky_tip.y < middle_pip.y):
-                    open_palm_count += 1
-            
-            if thumbs_up_count == 2:
-                return "thumbs_up", results
-            elif thumbs_down_count == 2:
-                return "thumbs_down", results
-            elif open_palm_count == 2:
-                return "open_palm", results
     
-    return None, results
-
-def save_frame_data(output_dir, frame_idx, depth_frame, ir_frame, metadata):
-    """Save frame data and metadata to disk."""
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-    
-    # Save depth and IR frames
-    np.save(os.path.join(output_dir, f'depth_{frame_idx:06d}.npy'), depth_frame)
-    np.save(os.path.join(output_dir, f'ir_{frame_idx:06d}.npy'), ir_frame)
-    
-    # Save metadata
-    with open(os.path.join(output_dir, f'metadata_{frame_idx:06d}.txt'), 'w') as f:
-        for key, value in metadata.items():
-            f.write(f'{key}: {value}\n')
-
-def get_scene_description(depth_frame: np.ndarray, ir_frame: np.ndarray, use_llm: bool = True) -> Optional[str]:
-    """Generate a description of the scene using BLIP if LLM is enabled, otherwise just depth info."""
-    try:
-        if ir_frame is None:
-            return "No IR feed available"
-        
-        # Always provide depth information
-        valid_depth = depth_frame[depth_frame > 0] if depth_frame is not None else np.array([])
-        if len(valid_depth) > 0:
-            # Convert to meters
-            avg_depth = np.mean(valid_depth) / 1000.0
-            min_depth = np.min(valid_depth) / 1000.0
-            max_depth = np.max(valid_depth) / 1000.0
-            
-            depth_info = f"Objects at {min_depth:.2f}-{max_depth:.2f}m, average {avg_depth:.2f}m"
-        else:
-            depth_info = "No valid depth data"
-        
-        # Return only depth info if LLM is disabled
-        if not use_llm:
-            return depth_info
-        
-        # Initialize LLM if needed
-        initialize_blip_model()
-        
-        # Convert IR to 3 channels for BLIP
-        ir_3ch = cv2.cvtColor(ir_frame, cv2.COLOR_GRAY2BGR)
-        
-        # Convert to PIL Image
-        pil_image = Image.fromarray(cv2.cvtColor(ir_3ch, cv2.COLOR_BGR2RGB))
-        
-        # Prepare inputs
-        inputs = processor(pil_image, return_tensors="pt").to(device)
-        
-        # Generate description
-        out = model.generate(**inputs, max_new_tokens=50)
-        description = processor.decode(out[0], skip_special_tokens=True)
-        
-        # Add depth information
-        description += f" ({depth_info})"
-        
-        # Print the description to terminal
-        print(f"LLM: {description}")
-        
-        return description
-    except Exception as e:
-        print(f"Error in scene description: {e}")
-        return "Scene description error"
+    return results
 
 def draw_subtitle(image: np.ndarray, text: str, position: tuple = (10, 30)) -> np.ndarray:
     """Draw subtitle text on the image with a background for better visibility."""
@@ -285,7 +183,127 @@ def create_enhanced_depth_colormap(depth_frame, min_depth, max_depth, colormap_t
     # Mark invalid areas as dark gray
     colormap[~valid_mask] = [30, 30, 30]
     
+    # Optional: Apply a slight edge enhancement to emphasize object boundaries
+    edges = cv2.Canny(depth_normalized, 50, 150)
+    edge_mask = edges > 0
+    colormap[edge_mask] = [255, 255, 255]  # Highlight edges in white
+    
     return colormap
+
+# Add a new depth enhancement function with customizable options
+def create_advanced_depth_colormap(depth_frame, min_depth, max_depth, colormap_type=cv2.COLORMAP_TURBO, 
+                                  enhance_edges=True, highlight_closest=True):
+    """Advanced depth colormap with edge enhancement and closest point highlighting.
+    
+    Args:
+        depth_frame: Depth frame in millimeters
+        min_depth: Minimum depth in meters
+        max_depth: Maximum depth in meters
+        colormap_type: OpenCV colormap to use
+        enhance_edges: Whether to enhance edges in the depth map
+        highlight_closest: Whether to highlight the closest points
+        
+    Returns:
+        Colorized depth map
+    """
+    # Just in case depth_frame is None or invalid
+    if depth_frame is None or not isinstance(depth_frame, np.ndarray) or depth_frame.size == 0:
+        # Return a black image of specified size or default
+        h, w = 480, 640
+        if isinstance(depth_frame, np.ndarray) and depth_frame.ndim >= 2:
+            h, w = depth_frame.shape[:2]
+        return np.zeros((h, w, 3), dtype=np.uint8)
+
+    # Convert min/max from meters to millimeters
+    min_depth_mm = min_depth * 1000.0
+    max_depth_mm = max_depth * 1000.0
+    
+    # Make a copy to avoid modifying the original
+    depth_normalized = np.zeros_like(depth_frame, dtype=np.uint8)
+    
+    # Only include pixels with valid depth and in range
+    valid_mask = (depth_frame > 0) & (depth_frame >= min_depth_mm) & (depth_frame <= max_depth_mm)
+    
+    # Check if we have any valid data
+    if np.any(valid_mask):
+        # Apply very simple linear normalization (avoids any complicated calculations)
+        # Scale from min_depth to max_depth linearly to 0-255
+        depth_range = max_depth_mm - min_depth_mm
+        if depth_range > 0:  # Protect against division by zero
+            # Map depth values to 0-255 range
+            depth_normalized[valid_mask] = np.clip(
+                255 * (max_depth_mm - depth_frame[valid_mask]) / depth_range,
+                0, 255
+            ).astype(np.uint8)
+    
+    # Apply chosen colormap
+    colormap = cv2.applyColorMap(depth_normalized, colormap_type)
+    
+    # Mark invalid areas as dark gray
+    colormap[~valid_mask] = [30, 30, 30]
+    
+    # Optional edge enhancement
+    if enhance_edges:
+        try:
+            # Apply bilateral filter to reduce noise while preserving edges
+            filtered = cv2.bilateralFilter(depth_normalized, 5, 50, 50)
+            # Detect edges using Canny
+            edges = cv2.Canny(filtered, 30, 100)
+            # Dilate edges to make them more visible
+            kernel = np.ones((2, 2), np.uint8)
+            edges = cv2.dilate(edges, kernel, iterations=1)
+            # Overlay edges on colormap
+            edge_mask = edges > 0
+            colormap[edge_mask] = [255, 255, 255]  # White edges
+        except Exception as e:
+            # Fallback to simpler edge detection if advanced method fails
+            edges = cv2.Canny(depth_normalized, 50, 150)
+            edge_mask = edges > 0
+            colormap[edge_mask] = [255, 255, 255]
+    
+    # Optional highlight of closest points
+    if highlight_closest and np.any(valid_mask):
+        try:
+            # Find the closest 5% of valid points
+            close_threshold = np.percentile(depth_frame[valid_mask], 5)
+            closest_mask = (depth_frame <= close_threshold) & valid_mask
+            
+            # Only proceed if we have closest points
+            if np.any(closest_mask):
+                # Apply a pulsating highlight effect based on time
+                pulse = (np.sin(time.time() * 5) + 1) / 2  # Value between 0 and 1
+                highlight_color = np.array([0, int(155 + 100 * pulse), 255], dtype=np.uint8)
+                
+                # Create a dilated mask for the highlight area
+                highlight_mask = np.zeros_like(depth_frame, dtype=bool)
+                highlight_mask[closest_mask] = True
+                kernel = np.ones((5, 5), np.uint8)
+                highlight_mask = cv2.dilate(highlight_mask.astype(np.uint8), kernel, iterations=1).astype(bool)
+                
+                # Apply highlight with alpha blending
+                alpha = 0.7
+                colormap[highlight_mask] = (colormap[highlight_mask] * (1 - alpha) + highlight_color * alpha).astype(np.uint8)
+        except Exception as e:
+            # Silently fail if highlighting doesn't work
+            pass
+    
+    return colormap
+
+def get_depth_info(depth_frame):
+    """Get simple depth information from the depth frame"""
+    if depth_frame is None:
+        return "No depth data available"
+    
+    valid_depth = depth_frame[depth_frame > 0]
+    if len(valid_depth) > 0:
+        # Convert to meters
+        avg_depth = np.mean(valid_depth) / 1000.0
+        min_depth = np.min(valid_depth) / 1000.0
+        max_depth = np.max(valid_depth) / 1000.0
+        
+        return f"Objects at {min_depth:.2f}-{max_depth:.2f}m, average {avg_depth:.2f}m"
+    else:
+        return "No valid depth data"
 
 def main():
     # Parse command line arguments
@@ -293,12 +311,10 @@ def main():
     parser.add_argument('--min-depth', type=float, default=0.1, help='Minimum depth in meters')
     parser.add_argument('--max-depth', type=float, default=5.0, help='Maximum depth in meters')
     parser.add_argument('--enable-color', action='store_true', help='Enable color stream')
-    parser.add_argument('--output-dir', type=str, default='recordings', help='Output directory for recordings')
     parser.add_argument('--colormap', type=str, default='RAINBOW', choices=['TURBO', 'JET', 'PLASMA', 'VIRIDIS', 'HOT', 'RAINBOW'], 
                       help='Colormap to use for depth visualization')
     parser.add_argument('--no-auto-range', action='store_true', help='Disable automatic depth range adjustment')
     parser.add_argument('--no-auto-exposure', action='store_true', help='Disable auto exposure for IR and color cameras')
-    parser.add_argument('--no-llm', action='store_true', help='Disable LLM scene descriptions')
     # Add resolution and frame rate parameters
     parser.add_argument('--resolution', type=str, default='640x360', 
                         choices=['1280x720', '848x480', '640x360', '480x270', '424x240'],
@@ -306,38 +322,52 @@ def main():
     parser.add_argument('--fps', type=int, default=30, 
                         choices=[5, 15, 30, 60, 90],
                         help='Camera frame rate (fps)')
+    parser.add_argument('--no-hand-tracking', action='store_true', help='Disable hand tracking and gesture detection')
+    parser.add_argument('--advanced-depth', action='store_true', help='Use advanced depth visualization')
+    parser.add_argument('--no-edge-enhancement', action='store_true', help='Disable edge enhancement in advanced depth mode')
+    parser.add_argument('--no-highlight', action='store_true', help='Disable closest point highlighting in advanced depth mode')
     args = parser.parse_args()
-    
-    # Print LLM status
-    if args.no_llm:
-        print("LLM disabled - using simple depth information only")
-    else:
-        # Only initialize LLM if needed
-        initialize_blip_model()
     
     # Parse resolution
     width, height = map(int, args.resolution.split('x'))
     
-    # Initialize MediaPipe Hands
-    mp_hands = mp.solutions.hands
-    hands = mp_hands.Hands(
-        static_image_mode=False,
-        max_num_hands=2,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5
-    )
+    # Initialize MediaPipe Hands if hand tracking is enabled
+    hands = None
+    if not args.no_hand_tracking and mp is not None:
+        print("Initializing hand tracking...")
+        hands = mp.solutions.hands.Hands(
+            static_image_mode=False,
+            max_num_hands=2,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+    else:
+        print("Hand tracking disabled")
+        args.no_hand_tracking = True
     
     # Create RealSense instance with depth filtering
-    rs = PyRealSense(
-        width=width,
-        height=height,
-        framerate=args.fps,
-        enable_color=args.enable_color,
-        enable_ir=True,
-        min_depth=args.min_depth,
-        max_depth=args.max_depth,
-        auto_exposure=not args.no_auto_exposure
-    )
+    try:
+        rs = PyRealSense(
+            width=width,
+            height=height,
+            framerate=args.fps,
+            enable_color=args.enable_color,
+            enable_ir=True,
+            min_depth=args.min_depth,
+            max_depth=args.max_depth
+        )
+    except TypeError as e:
+        print(f"Error initializing RealSense: {e}")
+        print("Trying without auto_exposure parameter...")
+        rs = PyRealSense(
+            width=width,
+            height=height,
+            framerate=args.fps,
+            enable_color=args.enable_color,
+            enable_ir=True,
+            min_depth=args.min_depth,
+            max_depth=args.max_depth
+        )
     
     # Set colormap based on argument
     COLORMAP_CHOICES = {
@@ -364,24 +394,13 @@ def main():
         # Only print essential camera info
         logger.info(f"Camera ready - {rs.camera_model_name}, {rs.frame_width}x{rs.frame_height} @ {rs.frame_rate}fps")
         logger.info(f"Auto-range: {'Disabled' if args.no_auto_range else 'Enabled'}, Colormap: {args.colormap}")
-        logger.info(f"LLM Descriptions: {'Disabled' if args.no_llm else 'Enabled'}")
+        logger.info(f"Hand Tracking: {'Disabled' if args.no_hand_tracking else 'Enabled'}")
+        logger.info(f"Depth Visualization: {'Advanced' if args.advanced_depth else 'Standard'}")
         
-        print("\nGesture Controls:")
-        print("1. Two thumbs up 👍👍 to start recording")
-        print("2. Two thumbs down 👎👎 to stop recording (>5 seconds to save)")
-        print("3. Two open palms 🖐️🖐️ to cancel recording")
-        print("4. Press 'q' to quit")
-        if not args.no_llm:
-            print("\n--- Scene Descriptions ---")
-        else:
-            print("\n--- Depth Information ---")
+        print("\nControls:")
+        print("1. Press 'q' to quit")
         
-        recording = False
-        output_dir = None
-        frame_idx = 0
-        start_time = None
-        last_description_time = 0
-        current_description = "Initializing scene description..."
+        current_description = "Initializing..."
         
         # Variables for auto-range
         depth_min_running = args.min_depth
@@ -422,7 +441,7 @@ def main():
                 depth_frame = np.nan_to_num(depth_frame)
                 ir_frame = np.nan_to_num(ir_frame)
             
-            # Auto-adjust depth range if enabled (quietly)
+            # Auto-adjust depth range if enabled
             if auto_range:
                 valid_depths = depth_frame[depth_frame > 0]
                 if len(valid_depths) > 0:
@@ -462,69 +481,50 @@ def main():
                 depth_min_running = args.min_depth
                 depth_max_running = args.max_depth
             
-            # Generate new scene description every 3 seconds
-            current_time = time.time()
-            if not args.no_llm and current_time - last_description_time >= 3.0:
-                # Redirect stdout during scene description to capture only explicit prints
-                sys.stdout = original_stdout
-                current_description = get_scene_description(depth_frame, ir_frame) or "Unable to generate scene description"
-                last_description_time = current_time
+            # Get depth information
+            current_description = get_depth_info(depth_frame)
             
-            # Create simplified depth visualization with current range
-            depth_colormap = create_enhanced_depth_colormap(
-                depth_frame, 
-                depth_min_running, 
-                depth_max_running, 
-                selected_colormap
-            )
+            # Create depth visualization with current range - use advanced mode if selected
+            if args.advanced_depth:
+                depth_colormap = create_advanced_depth_colormap(
+                    depth_frame, 
+                    depth_min_running, 
+                    depth_max_running, 
+                    selected_colormap,
+                    enhance_edges=not args.no_edge_enhancement,
+                    highlight_closest=not args.no_highlight
+                )
+            else:
+                depth_colormap = create_enhanced_depth_colormap(
+                    depth_frame, 
+                    depth_min_running, 
+                    depth_max_running, 
+                    selected_colormap
+                )
             
             try:
-                # Process hand gestures and draw landmarks
-                gesture, results = detect_gesture(ir_frame, hands)
+                # Initialize visualization images
+                ir_viz = ir_frame.copy()
+                if len(ir_viz.shape) == 2:  # Convert grayscale to BGR for display
+                    ir_viz = cv2.cvtColor(ir_viz, cv2.COLOR_GRAY2BGR)
                 
-                # Create visualization images (with error handling)
-                try:
-                    ir_viz = draw_hand_landmarks(ir_frame.copy(), results)
-                except Exception as e:
-                    print(f"Error drawing IR landmarks: {e}")
-                    ir_viz = ir_frame.copy()
-                    if len(ir_viz.shape) == 2:  # Convert grayscale to BGR for display
-                        ir_viz = cv2.cvtColor(ir_viz, cv2.COLOR_GRAY2BGR)
+                depth_viz = depth_colormap.copy()
                 
-                try:
-                    depth_viz = draw_hand_landmarks(depth_colormap.copy(), results)
-                except Exception as e:
-                    print(f"Error drawing depth landmarks: {e}")
-                    depth_viz = depth_colormap.copy()
-                
-                # Handle gestures with minimal printing
-                if gesture == "thumbs_up" and not recording:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    output_dir = os.path.join(args.output_dir, timestamp)
-                    print(f"\n▶️ Recording started")
-                    recording = True
-                    frame_idx = 0
-                    start_time = time.time()
-                elif gesture == "thumbs_down" and recording:
-                    recording = False
-                    duration = time.time() - start_time
-                    if duration >= 5.0:
-                        print(f"\n⏹️ Recording saved ({duration:.1f}s, {frame_idx} frames)")
-                    else:
-                        print(f"\n❌ Recording discarded (too short: {duration:.1f}s)")
-                        if output_dir and os.path.exists(output_dir):
-                            for file in os.listdir(output_dir):
-                                os.remove(os.path.join(output_dir, file))
-                            os.rmdir(output_dir)
-                        output_dir = None
-                elif gesture == "open_palm" and recording:
-                    recording = False
-                    print(f"\n🚫 Recording cancelled")
-                    if output_dir and os.path.exists(output_dir):
-                        for file in os.listdir(output_dir):
-                            os.remove(os.path.join(output_dir, file))
-                        os.rmdir(output_dir)
-                    output_dir = None
+                # Process hand gestures and draw landmarks if hand tracking is enabled
+                if not args.no_hand_tracking and hands is not None:
+                    # Process hand gestures
+                    results = detect_gesture(ir_frame, hands)
+                    
+                    # Draw hand landmarks on visualization images
+                    try:
+                        ir_viz = draw_hand_landmarks(ir_viz, results)
+                    except Exception as e:
+                        print(f"Error drawing IR landmarks: {e}")
+                    
+                    try:
+                        depth_viz = draw_hand_landmarks(depth_viz, results)
+                    except Exception as e:
+                        print(f"Error drawing depth landmarks: {e}")
                 
                 # Safety check for visualization images
                 if ir_viz is None or depth_viz is None or not isinstance(ir_viz, np.ndarray) or not isinstance(depth_viz, np.ndarray):
@@ -544,63 +544,27 @@ def main():
                     display_image = np.zeros((480, 1280, 3), dtype=np.uint8)
                     cv2.putText(display_image, "Display Error", (500, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                 
-                # Add scene description as subtitle
+                # Add depth information as subtitle
                 try:
                     display_image = draw_subtitle(display_image, current_description)
                 except Exception as e:
                     print(f"Error drawing subtitle: {e}")
                 
-                # Save frame data if recording
-                if recording:
-                    try:
-                        metadata = {
-                            'timestamp': time.time() - start_time,
-                            'frame_index': frame_idx,
-                            'min_depth': depth_min_running,
-                            'max_depth': depth_max_running,
-                            'frame_rate': rs.frame_rate,
-                            'resolution': f"{rs.frame_width}x{rs.frame_height}",
-                            'scene_description': current_description
-                        }
-                        save_frame_data(output_dir, frame_idx, depth_frame, ir_frame, metadata)
-                        frame_idx += 1
-                        print(f"Recording frame {frame_idx}", end='\r')
-                    except Exception as e:
-                        print(f"Error saving frame data: {e}")
-                
-                # Show recording status
-                status_text = "Recording..." if recording else "Ready"
-                status_color = (0, 0, 255) if recording else (0, 255, 0)
-                
-                if recording:
-                    cv2.rectangle(display_image, (0, 0), (display_image.shape[1]-1, display_image.shape[0]-1), status_color, 10)
-                
-                text_size = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
-                text_x = (display_image.shape[1] - text_size[0]) // 2
-                cv2.rectangle(display_image, (text_x-10, 10), (text_x+text_size[0]+10, 50), (0, 0, 0), -1)
-                cv2.putText(display_image, status_text, (text_x, 40), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 1, status_color, 2)
-                
-                if recording:
-                    frame_text = f"Frame: {frame_idx}"
-                    frame_text_size = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
-                    frame_text_x = (display_image.shape[1] - frame_text_size[0]) // 2
-                    cv2.rectangle(display_image, (frame_text_x-10, 60), (frame_text_x+frame_text_size[0]+10, 90), (0, 0, 0), -1)
-                    cv2.putText(display_image, frame_text, (frame_text_x, 85), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
-                
+                # Display the image without any status text
                 cv2.imshow('RealSense', display_image)
                 
             except Exception as e:
                 print(f"Error in main loop: {e}")
             
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
                 break
                 
     finally:
         rs.stop()
         cv2.destroyAllWindows()
-        hands.close()
+        if hands is not None:
+            hands.close()
 
 if __name__ == "__main__":
     main() 
