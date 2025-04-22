@@ -6,13 +6,9 @@ import time
 from realsense.wrapper import PyRealSense
 import logging
 import sys
+import threading
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import threading
-import dash
-from dash import dcc, html
-from dash.dependencies import Input, Output
-import webbrowser
 from hand_visualization import create_hand_figure, update_hand_visualization, default_coordinate_conversion
 
 # Parse arguments first to check if hand tracking is disabled
@@ -297,52 +293,110 @@ def get_depth_info(depth_frame):
     else:
         return "No valid depth data"
 
-def create_dash_app():
-    """Create a Dash application for 3D visualization"""
-    app = dash.Dash(__name__)
+# Replace the edge visualization with 3D hand visualization function
+def create_3d_hand_visualization(hand_results, depth_frame=None, width=640, height=480):
+    """Create a 3D hand visualization image for OpenCV display"""
+    # Create a blank image with dark background
+    visualization = np.zeros((height, width, 3), dtype=np.uint8)
+    visualization[:, :] = [30, 30, 30]  # Dark gray background
     
-    # Create the layout with a graph
-    app.layout = html.Div([
-        html.H3("RealSense 3D Hand Tracking"),
-        dcc.Graph(id='hand-visualization', figure=create_hand_figure(), style={'height': '80vh'}),
-        dcc.Interval(id='interval-component', interval=100, n_intervals=0),  # Update every 100ms
-    ])
+    # Add a title
+    cv2.putText(visualization, "3D Hand View", (10, 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     
-    # Define callback to update the graph
-    @app.callback(
-        Output('hand-visualization', 'figure'),
-        [Input('interval-component', 'n_intervals')]
-    )
-    def update_visualization(n_intervals):
-        global latest_hand_landmarks, latest_depth_frame, app_running
+    # If no hand landmarks, return the empty visualization
+    if hand_results is None or not hasattr(hand_results, 'multi_hand_landmarks') or not hand_results.multi_hand_landmarks:
+        cv2.putText(visualization, "No hands detected", (width//2 - 80, height//2), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 1)
+        return visualization
+    
+    # Define the coordinate system axes
+    axes_length = 100
+    origin = (width // 2, height // 2)
+    
+    # Draw coordinate axes
+    # X-axis (red)
+    cv2.line(visualization, origin, (origin[0] + axes_length, origin[1]), (0, 0, 255), 2)
+    cv2.putText(visualization, "X", (origin[0] + axes_length + 10, origin[1]), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+    
+    # Y-axis (green)
+    cv2.line(visualization, origin, (origin[0], origin[1] - axes_length), (0, 255, 0), 2)
+    cv2.putText(visualization, "Y", (origin[0], origin[1] - axes_length - 10), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+    
+    # Z-axis (blue)
+    cv2.line(visualization, origin, (origin[0] - axes_length//2, origin[1] + axes_length//2), (255, 0, 0), 2)
+    cv2.putText(visualization, "Z", (origin[0] - axes_length//2 - 15, origin[1] + axes_length//2 + 15), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1)
+    
+    # Create connections for hand landmarks (similar to MediaPipe connections)
+    connections = [
+        # Thumb
+        (0, 1), (1, 2), (2, 3), (3, 4),
+        # Index finger
+        (0, 5), (5, 6), (6, 7), (7, 8),
+        # Middle finger
+        (0, 9), (9, 10), (10, 11), (11, 12),
+        # Ring finger
+        (0, 13), (13, 14), (14, 15), (15, 16),
+        # Pinky
+        (0, 17), (17, 18), (18, 19), (19, 20),
+        # Palm
+        (0, 5), (5, 9), (9, 13), (13, 17)
+    ]
+    
+    # For each hand
+    for hand_landmarks in hand_results.multi_hand_landmarks:
+        points_3d = []
         
-        if not app_running:
-            # Return empty figure if app should be closed
-            return go.Figure()
+        # Extract 3D coordinates and project them to the visualization
+        for i, landmark in enumerate(hand_landmarks.landmark):
+            # Get 3D coordinates (normalized)
+            x, y, z = landmark.x, landmark.y, landmark.z
             
-        fig = create_hand_figure()
+            # Get depth from depth frame if available
+            if depth_frame is not None:
+                # Convert normalized coordinates to pixel coordinates
+                pixel_x = int(x * depth_frame.shape[1])
+                pixel_y = int(y * depth_frame.shape[0])
+                
+                # Check if within bounds
+                if 0 <= pixel_x < depth_frame.shape[1] and 0 <= pixel_y < depth_frame.shape[0]:
+                    pixel_depth = depth_frame[pixel_y, pixel_x]
+                    if pixel_depth > 0:  # Valid depth
+                        # Scale z based on real depth (convert mm to normalized value)
+                        z = pixel_depth / 5000.0  # Adjust scaling as needed
+            
+            # Project 3D to 2D for visualization (simple orthographic projection)
+            # Adjust these formulas for better visualization as needed
+            proj_x = int(origin[0] + x * width * 0.4 - z * width * 0.2)
+            proj_y = int(origin[1] - y * height * 0.4 + z * height * 0.1)
+            
+            # Store the projected point
+            points_3d.append((proj_x, proj_y))
+            
+            # Draw the landmark point
+            cv2.circle(visualization, (proj_x, proj_y), 5, (100, 100, 255), -1)
+            
+            # Add point labels for key points
+            if i == 0 or i == 4 or i == 8 or i == 12 or i == 16 or i == 20:
+                cv2.putText(visualization, str(i), (proj_x + 5, proj_y + 5), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         
-        if latest_hand_landmarks is not None:
-            # Update the visualization with the latest hand landmarks
-            update_hand_visualization(
-                fig, 
-                [latest_hand_landmarks], 
-                latest_depth_frame, 
-                default_coordinate_conversion
-            )
-        
-        return fig
+        # Draw connections between landmarks
+        for connection in connections:
+            start_idx, end_idx = connection
+            if start_idx < len(points_3d) and end_idx < len(points_3d):
+                cv2.line(visualization, points_3d[start_idx], points_3d[end_idx], (0, 255, 0), 2)
     
-    return app
-
-def run_dash_app(app):
-    """Run the Dash application in a separate thread"""
-    # Open browser automatically
-    port = 8050
-    webbrowser.open_new(f"http://localhost:{port}")
+    # Add legend
+    cv2.putText(visualization, "Hand Joints", (width - 150, height - 60), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 100, 255), 1)
+    cv2.putText(visualization, "Connections", (width - 150, height - 40), 
+               cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
     
-    # Start the server
-    app.run_server(debug=False, port=port)
+    return visualization
 
 def main():
     # Parse command line arguments
@@ -419,22 +473,6 @@ def main():
         'RAINBOW': cv2.COLORMAP_RAINBOW
     }
     selected_colormap = COLORMAP_CHOICES.get(args.colormap.upper(), cv2.COLORMAP_RAINBOW)
-    
-    # Start the 3D visualization in a separate thread if enabled
-    visualization_thread = None
-    if not args.no_hand_tracking and not args.no_3d_viz:
-        try:
-            # Initialize the Dash app
-            dash_app = create_dash_app()
-            
-            # Start the visualization thread
-            visualization_thread = threading.Thread(target=run_dash_app, args=(dash_app,))
-            visualization_thread.daemon = True  # Thread will exit when main program exits
-            visualization_thread.start()
-            print("3D visualization started in web browser")
-        except Exception as e:
-            print(f"Error starting 3D visualization: {e}")
-            args.no_3d_viz = True
     
     try:
         # Redirect stdout temporarily to capture debug messages from realsense
@@ -599,36 +637,29 @@ def main():
                     # Resize to match if dimensions don't match
                     ir_viz = cv2.resize(ir_viz, (depth_viz.shape[1], depth_viz.shape[0]))
                 
-                # Create display image by stacking horizontally
-                try:
-                    display_image = np.hstack((depth_viz, ir_viz))
-                except Exception as e:
-                    print(f"Error creating display image: {e}")
-                    # Create a fallback image
-                    display_image = np.zeros((480, 1280, 3), dtype=np.uint8)
-                    cv2.putText(display_image, "Display Error", (500, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+                # Create 3D hand visualization instead of edge map
+                hand_viz = create_3d_hand_visualization(latest_hand_landmarks, depth_frame, 
+                                                   width=depth_viz.shape[1], height=depth_viz.shape[0])
                 
-                # Add depth information as subtitle
-                try:
-                    display_image = draw_subtitle(display_image, current_description)
-                except Exception as e:
-                    print(f"Error drawing subtitle: {e}")
-                
-                # Display the image without any status text
-                cv2.imshow('RealSense', display_image)
-                
+                # Create display image by stacking three visualizations horizontally
+                display_image = np.hstack((depth_viz, ir_viz, hand_viz))
             except Exception as e:
                 print(f"Error in main loop: {e}")
+            
+            # Add depth information as subtitle
+            try:
+                display_image = draw_subtitle(display_image, current_description)
+            except Exception as e:
+                print(f"Error drawing subtitle: {e}")
+            
+            # Display the image without any status text
+            cv2.imshow('RealSense', display_image)
             
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
                 break
                 
     finally:
-        # Signal the dash app to close
-        global app_running
-        app_running = False
-        
         # Stop the camera
         rs.stop()
         cv2.destroyAllWindows()
@@ -636,10 +667,6 @@ def main():
         # Clean up resources
         if hands is not None:
             hands.close()
-        
-        # Wait for visualization thread to exit
-        if visualization_thread is not None and visualization_thread.is_alive():
-            visualization_thread.join(timeout=1.0)
 
 if __name__ == "__main__":
     main() 
