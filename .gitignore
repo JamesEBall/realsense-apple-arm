@@ -1,5 +1,42 @@
+# Generic development files
+# ----------------------
+
 # Prerequisites
 *.d
+
+# Build directories
+build/
+dist/
+out/
+output/
+target/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# Local development
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.temp/
+tmp/
+temp/
+
+# C and C++ specific
+# ------------------
 
 # Compiled Object files
 *.slo
@@ -31,25 +68,13 @@
 *.out
 *.app
 
-# macOS system files
-.DS_Store
-**/.DS_Store
-
-# Build directory
-build/
-
-# VS Code
-.vscode/
-
-# Python
+# Python specific
+# --------------
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
 .Python
-build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -62,69 +87,119 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
 
-# Virtual Environment
+# Virtual Environments
 venv/
 ENV/
 env/
 .env/
+.venv/
+pythonenv*/
 
-# IDE
-.idea/
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Cython generated files
+# ---------------------
+# Don't ignore actual source Cython files
+!*.pyx
+!*.pxd
+# But do ignore Cython generated C files
+*.c
+*.cpp
+# And compiled Cython modules
+*.pyd
+
+# IDE and editor files
+# -------------------
+# VS Code
 .vscode/
+.history/
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+.idea_modules/
+cmake-build-*/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
 *.swp
 *.swo
 *~
+[._]*.un~
+[._]*.sw[a-p]
 
-# Cython
-*.c
-*.cpp
-*.pyd
-*.so
+# Eclipse
+.classpath
+.project
+.settings/
 
+# OS specific files
+# ----------------
 # macOS
 .DS_Store
 .AppleDouble
 .LSOverride
 ._*
+.Spotlight-V100
+.Trashes
+Icon?
+ehthumbs.db
+Thumbs.db
 
-# Build artifacts
-*.o
-*.so
-*.dylib
-*.pyd
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msm
+*.msp
+*.lnk
 
-# Test coverage
-.coverage
-htmlcov/
-.pytest_cache/
+# Linux
+*~
+.directory
+.Trash-*
 
-# Logs
-*.log
-logs/
+# CMake
+# -----
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+Testing/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
 
-# Local development
-.env
-.env.local
-.env.*.local
+# Dependency directories
+# ---------------------
+node_modules/
+jspm_packages/
+bower_components/
 
-# Jupyter Notebook
-.ipynb_checkpoints
+# Generated documentation
+# ----------------------
+docs/_build/
+docs/api/
+docs/_static/
+docs/_templates/
+doxygen/
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
+realsense_python/examples/recordings
