@@ -2,6 +2,11 @@
 
 This repository contains a Python wrapper for Intel RealSense depth cameras that works natively on Apple Silicon Macs. It provides access to the core functionality of RealSense cameras including depth, infrared, and color streams.
 
+## Example Output
+
+![RealSense Depth Camera with Hand Tracking](images/example_image.png)
+*Example showing depth visualization (left), infrared stream with hand tracking (center), and 3D hand pose visualization (right)*
+
 ## Features
 
 - Native support for Apple Silicon (M1/M2/M3)
@@ -22,23 +27,24 @@ This repository contains a Python wrapper for Intel RealSense depth cameras that
 ### Steps
 
 1. Clone this repository:
+
    ```bash
    git clone https://github.com/yourusername/realsense_applesilicon.git
    cd realsense_applesilicon
    ```
-
 2. Create a Python virtual environment:
+
    ```bash
    python3.9 -m venv venv
    source venv/bin/activate
    ```
-
 3. Install the package:
+
    ```bash
    pip install -e .
    ```
-
 4. Install additional requirements for hand tracking (optional):
+
    ```bash
    pip install mediapipe opencv-python numpy
    ```
