@@ -201,5 +201,86 @@ docs/api/
 docs/_static/
 docs/_templates/
 doxygen/
+docs/html/
+docs/xml/
 
 realsense_python/examples/recordings
+# PyBuilder
+target/
+
+# pyenv
+.python-version
+
+# celery beat schedule file
+celerybeat-schedule
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
+
+# macOS
+.DS_Store
+
+# RealSense recordings
+recordings/
+*.npy
+*.txt
+
+# Project-specific virtual environments
+venv*/
+.venv*/
+examples/venv*/
+realsense_python/examples/venv*/
+
+# Generated C++ files from Cython
+realsense_python/src/realsense/wrapper.cpp
+
+# Documentation build
+docs/_build/
+docs/html/
+docs/xml/
+
+# Visual Studio Code settings
+.vscode/settings.json
+.vscode/launch.json
+
+# PyCharm project settings
+.idea/
+*.iml
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+._*

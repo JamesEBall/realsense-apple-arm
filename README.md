@@ -1,153 +1,84 @@
 # RealSense for Apple Silicon
 
-A high-performance Intel RealSense camera implementation for Apple Silicon (M) Macs, featuring:
-
-- Optimized Cython wrapper for Python applications
-- Direct memory access for efficient frame capture
-- Native support for depth and infrared streams
-- OpenCV integration for real-time visualization
-- C++ test suite for hardware validation
-
-This project bridges the gap between Intel RealSense SDK and ARM-based Mac systems, providing a seamless experience for computer vision applications on Apple Silicon.
-
-## Example Output
-
-![Example RealSense Output](realsense_python/docs/example_image.png)
+This repository contains a Python wrapper for Intel RealSense depth cameras that works natively on Apple Silicon Macs. It provides access to the core functionality of RealSense cameras including depth, infrared, and color streams.
 
 ## Features
 
-### Python Wrapper
-
-- Efficient Cython-based interface to RealSense SDK
-- Direct memory mapping for fast frame access
-- NumPy array integration for data processing
-- Real-time visualization with OpenCV
-- Simple, intuitive API
-
-### C++ Implementation
-
-- Native performance test suite
-- Hardware validation tools
-- Direct SDK integration
-- Performance benchmarking
+- Native support for Apple Silicon (M1/M2/M3)
+- Access to depth, infrared, and RGB streams
+- Advanced depth visualization options
+- Hand tracking using MediaPipe (optional)
+- Auto depth range adjustment
+- Compatible with most RealSense depth cameras
 
 ## Installation
 
-### Prerequisites
+### Requirements
 
-- macOS on Apple Silicon (M1/M2)
-- Python 3.8+
-- Intel RealSense SDK 2.0
-- OpenCV
-- Cython
+- macOS on Apple Silicon
+- Python 3.9+ (recommended)
+- pip package manager
 
-### Setup
+### Steps
 
-1. Install the Intel RealSense SDK 2.0:
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/yourusername/realsense_applesilicon.git
+   cd realsense_applesilicon
+   ```
 
-```bash
-brew install librealsense
-```
+2. Create a Python virtual environment:
+   ```bash
+   python3.9 -m venv venv
+   source venv/bin/activate
+   ```
 
-2. Install the Python package:
+3. Install the package:
+   ```bash
+   pip install -e .
+   ```
 
-```bash
-cd realsense_python
-python -m venv venv
-source venv/bin/activate
-pip install -e .
-```
-
-> **Important Note**: When running RealSense applications with pyenv on macOS, you must use `sudo` or you will encounter permission errors. This is because RealSense cameras require elevated permissions to access USB devices. For example:
->
-> ```bash
-> sudo pyenv exec python example.py
-> ```
->
-> Without sudo, you may get "Access denied" or "Device not found" errors when trying to access the camera.
+4. Install additional requirements for hand tracking (optional):
+   ```bash
+   pip install mediapipe opencv-python numpy
+   ```
 
 ## Usage
 
-### Python Interface
+### Basic Example
 
-```python
-from realsense import PyRealSense
-
-# Initialize camera
-camera = PyRealSense()
-
-# Start the camera
-camera.start()
-
-try:
-    while True:
-        # Get depth and IR frames
-        depth_frame, ir_frame = camera.get_frames()
-    
-        # Process frames (example with OpenCV)
-        cv2.imshow('Depth', depth_frame)
-        cv2.imshow('IR', ir_frame)
-    
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-finally:
-    camera.stop()
-```
-
-### C++ Test Application
-
-Build and run the C++ test suite:
+Run the example script to see the depth camera in action:
 
 ```bash
-cd cpp_test
-mkdir build && cd build
-cmake ..
-make
-./realsense_test
+cd examples
+python example.py --advanced-depth
 ```
+
+### Command Line Options
+
+- `--advanced-depth`: Use advanced depth visualization
+- `--no-hand-tracking`: Disable hand tracking
+- `--min-depth`: Set minimum depth in meters (default: 0.1)
+- `--max-depth`: Set maximum depth in meters (default: 5.0)
+- `--no-auto-range`: Disable automatic depth range adjustment
+- `--colormap`: Select colormap (TURBO, JET, PLASMA, VIRIDIS, HOT, RAINBOW)
+- `--resolution`: Camera resolution (1280x720, 848x480, 640x360, 480x270, 424x240)
+- `--fps`: Camera frame rate (5, 15, 30, 60, 90)
+- `--enable-color`: Enable color stream
 
 ## Project Structure
 
-```
-realsense_applesilicon/
-├── realsense_python/       # Python package
-│   ├── src/               # Source code
-│   │   └── realsense/    # Python module
-│   ├── tests/            # Python tests
-│   ├── examples/         # Example scripts
-│   └── docs/             # Documentation
-├── cpp_test/             # C++ test application
-│   ├── CMakeLists.txt
-│   └── realsense_test.cpp
-└── README.md
-```
-
-## Development
-
-### Python Development
-
-```bash
-cd realsense_python
-python -m venv venv
-source venv/bin/activate
-pip install -e .
-python tests/test_realsense.py
-```
-
-### C++ Development
-
-```bash
-cd cpp_test
-mkdir build && cd build
-cmake ..
-make
-./realsense_test
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit issues and pull requests.
+- `realsense_python/`: Core Python package
+  - `src/`: C++ implementation
+  - `include/`: Header files
+- `examples/`: Example scripts and applications
+- `build/`: Build artifacts
 
 ## License
 
-MIT License
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Intel RealSense SDK
+- MediaPipe Project
