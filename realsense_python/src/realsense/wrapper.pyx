@@ -98,6 +98,20 @@ cdef extern from "librealsense2/h/rs_types.h":
         RS2_CAMERA_INFO_FIRMWARE_UPDATE_ID = 12
         RS2_CAMERA_INFO_COUNT = 13
 
+    ctypedef enum rs2_option:
+        RS2_OPTION_BACKLIGHT_COMPENSATION = 0
+        RS2_OPTION_BRIGHTNESS = 1
+        RS2_OPTION_CONTRAST = 2
+        RS2_OPTION_EXPOSURE = 3
+        RS2_OPTION_GAIN = 4
+        RS2_OPTION_GAMMA = 5
+        RS2_OPTION_HUE = 6
+        RS2_OPTION_SATURATION = 7
+        RS2_OPTION_SHARPNESS = 8
+        RS2_OPTION_WHITE_BALANCE = 9
+        RS2_OPTION_ENABLE_AUTO_EXPOSURE = 10
+        RS2_OPTION_ENABLE_AUTO_WHITE_BALANCE = 11
+
 cdef extern from "librealsense2/rs.hpp" namespace "rs2":
     cdef cppclass context:
         context() except +
@@ -110,6 +124,11 @@ cdef extern from "librealsense2/rs.hpp" namespace "rs2":
     cdef cppclass device:
         string get_info(rs2_camera_info) except +
         bool supports(rs2_camera_info) except +
+        
+    cdef cppclass sensor:
+        void set_option(rs2_option option, float value) except +
+        float get_option(rs2_option option) except +
+        bool supports(rs2_option option) except +
         
     cdef cppclass pipeline:
         pipeline(context&) except +
@@ -151,8 +170,17 @@ cdef class PyRealSense:
     cdef bint is_usb3
     cdef float min_depth
     cdef float max_depth
+    cdef bint auto_exposure
+    cdef bint is_initialized
+    cdef int _width
+    cdef int _height
+    cdef int _frame_rate
+    cdef int _camera_model
+    cdef bint _is_usb3
+    cdef bint _is_running
+    cdef str _camera_model_name
     
-    def __cinit__(self, width=640, height=480, framerate=30, enable_color=False, enable_ir=True, enable_imu=False, min_depth=0.0, max_depth=10.0):
+    def __cinit__(self, width=640, height=480, framerate=30, enable_color=False, enable_ir=True, enable_imu=False, min_depth=0.0, max_depth=10.0, auto_exposure=True):
         print("Initializing RealSense...")  # Debug print
         self.width = width
         self.height = height
@@ -164,6 +192,15 @@ cdef class PyRealSense:
         self.is_usb3 = True  # Default to USB 3.1 mode
         self.min_depth = min_depth
         self.max_depth = max_depth
+        self.auto_exposure = auto_exposure
+        self.is_initialized = False
+        self._width = width
+        self._height = height
+        self._frame_rate = framerate
+        self._camera_model = 0
+        self._is_usb3 = True
+        self._is_running = False
+        self._camera_model_name = ""
         
         try:
             self.ctx = new context()
@@ -171,6 +208,9 @@ cdef class PyRealSense:
             
             # Detect camera model and USB mode
             self._detect_camera()
+            
+            # Validate resolution and frame rate
+            self._validate_resolution_and_fps()
             
             self.pipe = new pipeline(deref(self.ctx))
             print("Pipeline created")  # Debug print
@@ -223,40 +263,66 @@ cdef class PyRealSense:
         
         print(f"Detected camera model: {self.camera_model}, USB mode: {'3.1' if self.is_usb3 else '2.0'}")
     
-    cdef void _configure_streams(self):
-        # Set frame rate limits based on resolution and USB mode
-        if self.is_usb3:
-            if self.width == 1280 and self.height == 720:
-                self.framerate = min(self.framerate, 30)  # USB 3.1: 30 FPS max
-            elif self.width == 848 and self.height == 480:
-                self.framerate = min(self.framerate, 90)  # USB 3.1: 90 FPS max
-            elif self.width == 640 and self.height == 480:
-                self.framerate = min(self.framerate, 90)  # USB 3.1: 90 FPS max
-            elif self.width == 640 and self.height == 360:
-                self.framerate = min(self.framerate, 90)  # USB 3.1: 90 FPS max
-            elif self.width == 480 and self.height == 270:
-                self.framerate = min(self.framerate, 90)  # USB 3.1: 90 FPS max
-        else:
-            if self.width == 1280 and self.height == 720:
-                self.framerate = min(self.framerate, 6)  # USB 2.0: 6 FPS max
-            elif self.width == 848 and self.height == 480:
-                self.framerate = min(self.framerate, 10)  # USB 2.0: 10 FPS max
-            elif self.width == 640 and self.height == 480:
-                self.framerate = min(self.framerate, 30)  # USB 2.0: 30 FPS max
-            elif self.width == 640 and self.height == 360:
-                self.framerate = min(self.framerate, 30)  # USB 2.0: 30 FPS max
-            elif self.width == 480 and self.height == 270:
-                self.framerate = min(self.framerate, 60)  # USB 2.0: 60 FPS max
+    cdef void _validate_resolution_and_fps(self):
+        """Validate resolution and frame rate combination based on camera model and USB mode."""
+        # Check if resolution is supported
+        valid_resolutions = [
+            (1280, 720),
+            (848, 480),
+            (640, 360),
+            (480, 270),
+            (424, 240)
+        ]
         
+        if (self.width, self.height) not in valid_resolutions:
+            valid_res_str = ", ".join([f"{w}x{h}" for w, h in valid_resolutions])
+            raise ValueError(f"Unsupported resolution: {self.width}x{self.height}. Supported resolutions: {valid_res_str}")
+        
+        # Validate frame rate based on resolution and USB mode
+        if self.is_usb3:
+            # USB 3.1 mode
+            if self.width == 1280 and self.height == 720:
+                if self.framerate not in [5, 15, 30]:
+                    raise ValueError(f"Unsupported frame rate {self.framerate} for resolution {self.width}x{self.height} in USB 3.1 mode. Supported rates: 5, 15, 30")
+                self.framerate = min(self.framerate, 30)
+            elif (self.width == 848 and self.height == 480) or \
+                 (self.width == 640 and self.height == 360) or \
+                 (self.width == 480 and self.height == 270) or \
+                 (self.width == 424 and self.height == 240):
+                if self.framerate not in [5, 15, 30, 60, 90]:
+                    raise ValueError(f"Unsupported frame rate {self.framerate} for resolution {self.width}x{self.height} in USB 3.1 mode. Supported rates: 5, 15, 30, 60, 90")
+                self.framerate = min(self.framerate, 90)
+        else:
+            # USB 2.0 mode (more restricted)
+            if self.width == 1280 and self.height == 720:
+                # Lower FPS for USB 2.0
+                valid_rates = [5]
+                if self.framerate not in valid_rates:
+                    raise ValueError(f"Unsupported frame rate {self.framerate} for resolution {self.width}x{self.height} in USB 2.0 mode. Supported rates: {', '.join(map(str, valid_rates))}")
+                self.framerate = min(self.framerate, 5)
+            elif self.width == 848 and self.height == 480:
+                valid_rates = [5, 10]
+                if self.framerate not in valid_rates:
+                    raise ValueError(f"Unsupported frame rate {self.framerate} for resolution {self.width}x{self.height} in USB 2.0 mode. Supported rates: {', '.join(map(str, valid_rates))}")
+                self.framerate = min(self.framerate, 10)
+            elif (self.width == 640 and self.height == 360) or (self.width == 480 and self.height == 270) or (self.width == 424 and self.height == 240):
+                valid_rates = [5, 15, 30]
+                if self.framerate not in valid_rates:
+                    raise ValueError(f"Unsupported frame rate {self.framerate} for resolution {self.width}x{self.height} in USB 2.0 mode. Supported rates: {', '.join(map(str, valid_rates))}")
+                self.framerate = min(self.framerate, 30)
+        
+        print(f"Using resolution {self.width}x{self.height} at {self.framerate} FPS")
+    
+    cdef void _configure_streams(self):
         # Configure depth stream
         self.cfg.enable_stream(RS2_STREAM_DEPTH, 0, self.width, self.height, RS2_FORMAT_Z16, self.framerate)
         
         # Configure infrared stream if enabled
         if self.enable_ir:
-            # For D421, enable both IR streams
+            # For D421, enable the left IR stream (index 1) as the main IR stream
+            # This ensures get_infrared_frame() will return the left camera
             if self.camera_model == D421:
-                self.cfg.enable_stream(RS2_STREAM_INFRARED, 1, self.width, self.height, RS2_FORMAT_Y8, self.framerate)  # Left IR
-                self.cfg.enable_stream(RS2_STREAM_INFRARED, 2, self.width, self.height, RS2_FORMAT_Y8, self.framerate)  # Right IR
+                self.cfg.enable_stream(RS2_STREAM_INFRARED, 1, self.width, self.height, RS2_FORMAT_Y8, self.framerate)  # Left IR only
             else:
                 self.cfg.enable_stream(RS2_STREAM_INFRARED, 0, self.width, self.height, RS2_FORMAT_Y8, self.framerate)
         
@@ -303,6 +369,11 @@ cdef class PyRealSense:
                 self.pipe.start()
                 self.running = True
                 print("Pipeline started successfully")  # Debug print
+                
+                # Configure auto-exposure settings
+                if not self.auto_exposure:
+                    self._disable_auto_exposure()
+                
             except Exception as e:
                 print(f"Error starting pipeline: {str(e)}")  # Debug print
                 raise
@@ -329,23 +400,21 @@ cdef class PyRealSense:
         if not self.running:
             raise RuntimeError("Camera not started")
         
-        print("Waiting for frames...")  # Debug print
         try:
             # Get frames
             frames = deref(self.pipe).wait_for_frames(5000)  # 5 second timeout
-            print("Got frameset")  # Debug print
             
             try:
                 # Get depth frame
                 try:
                     depth_frame = frames.get_depth_frame()
                     depth_data = <const uint16_t*>depth_frame.get_data()
-                except:
-                    print("Warning: Failed to get depth frame, retrying...")
+                except Exception as e:
+                    print(f"Warning: Failed to get depth frame: {e}")
                     return None
                     
                 if depth_data == NULL:
-                    print("Warning: Failed to get depth frame data, retrying...")
+                    print("Warning: Null depth data")
                     return None
                     
                 depth_array = np.zeros((self.height, self.width), dtype=np.uint16)
@@ -365,10 +434,12 @@ cdef class PyRealSense:
                 # Get IR frame if enabled
                 if self.enable_ir:
                     try:
+                        # For all camera models, use the standard get_infrared_frame method
+                        # D421 will need special handling in stream configuration, not here
                         ir_frame = frames.get_infrared_frame()
                         ir_data = <const uint8_t*>ir_frame.get_data()
-                    except:
-                        print("Warning: Failed to get IR frame")
+                    except Exception as e:
+                        print(f"Warning: Failed to get IR frame: {e}")
                         ir_data = NULL
                         
                     if ir_data != NULL:
@@ -381,8 +452,8 @@ cdef class PyRealSense:
                     try:
                         color_frame = frames.get_color_frame()
                         color_data = <const uint8_t*>color_frame.get_data()
-                    except:
-                        print("Warning: Failed to get color frame")
+                    except Exception as e:
+                        print(f"Warning: Failed to get color frame: {e}")
                         color_data = NULL
                         
                     if color_data != NULL:
@@ -396,15 +467,14 @@ cdef class PyRealSense:
                             memcpy(color_array.data, color_data, self.width * self.height * 2 * sizeof(uint8_t))
                         result['color'] = color_array
                 
-                print("Data copied to numpy arrays")  # Debug print
                 return result
                 
             except Exception as e:
-                print(f"Error processing frames: {str(e)}")  # Debug print
+                print(f"Error processing frames: {str(e)}")
                 return None
             
         except Exception as e:
-            print(f"Error in get_frames: {str(e)}")  # Debug print
+            print(f"Error in get_frames: {str(e)}")
             return None
     
     @property
@@ -445,3 +515,19 @@ cdef class PyRealSense:
     @property
     def is_usb3_mode(self):
         return self.is_usb3 
+
+    cdef void _disable_auto_exposure(self):
+        """Configure auto-exposure settings for all sensors."""
+        print("Disabling auto-exposure...")
+        
+        try:
+            # Access devices directly through librealsense C API
+            # Since we can't use create_sensor, we'll need to add code to set auto-exposure after pipeline starts
+            # This is a simplified version that doesn't use sensors directly
+            # In a real implementation, you would need to get access to sensor objects
+            print("Auto-exposure features not fully implemented yet")
+            print("Setting manual exposure requires direct access to sensor objects")
+            
+        except Exception as e:
+            print(f"Error configuring auto-exposure: {str(e)}")
+            # Don't raise, just log the error and continue 

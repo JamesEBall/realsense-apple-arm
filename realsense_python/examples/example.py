@@ -39,13 +39,23 @@ realsense_logger.setLevel(logging.ERROR)
 logger = logging.getLogger('depth_app')
 logger.setLevel(logging.INFO)
 
-# Initialize BLIP model
-print("Loading BLIP model...")
-processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
-device = "mps" if torch.backends.mps.is_available() else "cpu"
-model = model.to(device)
-print(f"Using device: {device}")
+# Initialize BLIP model only if needed
+print("Checking for LLM model requirement...")
+processor = None
+model = None
+device = None
+
+def initialize_blip_model():
+    """Initialize BLIP model for scene description (only when needed)"""
+    global processor, model, device
+    if processor is None or model is None:
+        print("Loading BLIP model...")
+        from transformers import BlipProcessor, BlipForConditionalGeneration
+        processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+        model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
+        device = "mps" if torch.backends.mps.is_available() else "cpu"
+        model = model.to(device)
+        print(f"Using device: {device}")
 
 def draw_hand_landmarks(image, results, color=(0, 255, 0)):
     """Draw hand landmarks and connections on the image."""
@@ -139,12 +149,31 @@ def save_frame_data(output_dir, frame_idx, depth_frame, ir_frame, metadata):
         for key, value in metadata.items():
             f.write(f'{key}: {value}\n')
 
-def get_scene_description(depth_frame: np.ndarray, ir_frame: np.ndarray) -> Optional[str]:
-    """Generate a description of the scene using BLIP."""
+def get_scene_description(depth_frame: np.ndarray, ir_frame: np.ndarray, use_llm: bool = True) -> Optional[str]:
+    """Generate a description of the scene using BLIP if LLM is enabled, otherwise just depth info."""
     try:
         if ir_frame is None:
             return "No IR feed available"
+        
+        # Always provide depth information
+        valid_depth = depth_frame[depth_frame > 0] if depth_frame is not None else np.array([])
+        if len(valid_depth) > 0:
+            # Convert to meters
+            avg_depth = np.mean(valid_depth) / 1000.0
+            min_depth = np.min(valid_depth) / 1000.0
+            max_depth = np.max(valid_depth) / 1000.0
             
+            depth_info = f"Objects at {min_depth:.2f}-{max_depth:.2f}m, average {avg_depth:.2f}m"
+        else:
+            depth_info = "No valid depth data"
+        
+        # Return only depth info if LLM is disabled
+        if not use_llm:
+            return depth_info
+        
+        # Initialize LLM if needed
+        initialize_blip_model()
+        
         # Convert IR to 3 channels for BLIP
         ir_3ch = cv2.cvtColor(ir_frame, cv2.COLOR_GRAY2BGR)
         
@@ -158,25 +187,16 @@ def get_scene_description(depth_frame: np.ndarray, ir_frame: np.ndarray) -> Opti
         out = model.generate(**inputs, max_new_tokens=50)
         description = processor.decode(out[0], skip_special_tokens=True)
         
-        # Add depth information with correct conversion to meters
-        valid_depth = depth_frame[depth_frame > 0]
-        if len(valid_depth) > 0:
-            # Convert to meters - the depth values are likely in millimeters
-            # Divide by 1000 to convert from mm to meters
-            avg_depth = np.mean(valid_depth) / 1000.0
-            min_depth = np.min(valid_depth) / 1000.0
-            max_depth = np.max(valid_depth) / 1000.0
-            
-            depth_info = f" (Objects at {min_depth:.2f}-{max_depth:.2f}m, average {avg_depth:.2f}m)"
-            description += depth_info
+        # Add depth information
+        description += f" ({depth_info})"
         
-        # Print the description to terminal (this is what we want to see)
+        # Print the description to terminal
         print(f"LLM: {description}")
         
         return description
     except Exception as e:
         print(f"Error in scene description: {e}")
-        return None
+        return "Scene description error"
 
 def draw_subtitle(image: np.ndarray, text: str, position: tuple = (10, 30)) -> np.ndarray:
     """Draw subtitle text on the image with a background for better visibility."""
@@ -218,7 +238,7 @@ def draw_subtitle(image: np.ndarray, text: str, position: tuple = (10, 30)) -> n
     return image
 
 def create_enhanced_depth_colormap(depth_frame, min_depth, max_depth, colormap_type=cv2.COLORMAP_TURBO):
-    """Create an enhanced depth colormap with better visualization between min and max depth.
+    """Basic, reliable depth colormap with minimal processing.
     
     Args:
         depth_frame: Depth frame in millimeters
@@ -229,64 +249,41 @@ def create_enhanced_depth_colormap(depth_frame, min_depth, max_depth, colormap_t
     Returns:
         Colorized depth map
     """
-    # Convert depth to float for better precision in calculations
-    depth_float = depth_frame.astype(np.float32)
-    
-    # Convert min and max depths from meters to millimeters for comparison with depth_frame
+    # Just in case depth_frame is None or invalid
+    if depth_frame is None or not isinstance(depth_frame, np.ndarray) or depth_frame.size == 0:
+        # Return a black image of specified size or default
+        h, w = 480, 640
+        if isinstance(depth_frame, np.ndarray) and depth_frame.ndim >= 2:
+            h, w = depth_frame.shape[:2]
+        return np.zeros((h, w, 3), dtype=np.uint8)
+
+    # Convert min/max from meters to millimeters
     min_depth_mm = min_depth * 1000.0
     max_depth_mm = max_depth * 1000.0
     
-    # Create a mask for valid depth pixels (non-zero and within range)
-    # Allow slight extension of the range to avoid clipping at boundaries
-    buffer_mm = (max_depth_mm - min_depth_mm) * 0.05  # 5% buffer
-    valid_mask = (depth_float > 0) & (depth_float >= (min_depth_mm - buffer_mm)) & (depth_float <= (max_depth_mm + buffer_mm))
+    # Make a copy to avoid modifying the original
+    depth_normalized = np.zeros_like(depth_frame, dtype=np.uint8)
     
-    # Normalize only valid pixels to 0-255 range
-    norm_depth = np.zeros_like(depth_float, dtype=np.uint8)
-    depth_range_mm = max_depth_mm - min_depth_mm
+    # Only include pixels with valid depth and in range
+    valid_mask = (depth_frame > 0) & (depth_frame >= min_depth_mm) & (depth_frame <= max_depth_mm)
     
+    # Check if we have any valid data
     if np.any(valid_mask):
-        # Ensure we don't divide by zero
-        if depth_range_mm > 0:
-            # Apply gamma correction for better visual contrast (gamma < 1 emphasizes differences in closer objects)
-            gamma = 0.85
-            
-            # Normalize depths to 0-1 range first
-            normalized = (depth_float[valid_mask] - min_depth_mm) / depth_range_mm
-            
-            # Apply gamma correction
-            corrected = np.power(normalized, gamma)
-            
-            # Scale to full 0-255 range
-            norm_depth[valid_mask] = (corrected * 255).astype(np.uint8)
-        else:
-            # If min_depth == max_depth, set to a middle value
-            norm_depth[valid_mask] = 128
+        # Apply very simple linear normalization (avoids any complicated calculations)
+        # Scale from min_depth to max_depth linearly to 0-255
+        depth_range = max_depth_mm - min_depth_mm
+        if depth_range > 0:  # Protect against division by zero
+            # Map depth values to 0-255 range
+            depth_normalized[valid_mask] = np.clip(
+                255 * (max_depth_mm - depth_frame[valid_mask]) / depth_range,
+                0, 255
+            ).astype(np.uint8)
     
-    # Apply colormap
-    colormap = cv2.applyColorMap(norm_depth, colormap_type)
+    # Apply chosen colormap
+    colormap = cv2.applyColorMap(depth_normalized, colormap_type)
     
-    # Add some visual indication of invalid areas (with pattern)
-    invalid_mask = ~valid_mask
-    if np.any(invalid_mask):
-        # Create a checkerboard pattern for invalid areas
-        checkerboard = np.zeros_like(depth_float, dtype=np.uint8)
-        checker_size = 10  # size of checkerboard squares
-        for i in range(0, depth_frame.shape[0], checker_size):
-            for j in range(0, depth_frame.shape[1], checker_size):
-                if (i // checker_size + j // checker_size) % 2 == 0:
-                    checkerboard[i:i+checker_size, j:j+checker_size] = 30
-                    
-        # Apply a dark gray pattern to invalid areas
-        colormap[invalid_mask] = [30, 30, 30]
-        # Add checkerboard to invalid areas
-        colormap[invalid_mask & (checkerboard > 0)] = [50, 50, 50]
-    
-    # Enhance contrast and vibrancy
-    hsv = cv2.cvtColor(colormap, cv2.COLOR_BGR2HSV)
-    hsv[:,:,1] = hsv[:,:,1] * 1.2  # Increase saturation by 20%
-    hsv[:,:,1] = np.clip(hsv[:,:,1], 0, 255)  # Ensure values stay within range
-    colormap = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    # Mark invalid areas as dark gray
+    colormap[~valid_mask] = [30, 30, 30]
     
     return colormap
 
@@ -300,7 +297,26 @@ def main():
     parser.add_argument('--colormap', type=str, default='RAINBOW', choices=['TURBO', 'JET', 'PLASMA', 'VIRIDIS', 'HOT', 'RAINBOW'], 
                       help='Colormap to use for depth visualization')
     parser.add_argument('--no-auto-range', action='store_true', help='Disable automatic depth range adjustment')
+    parser.add_argument('--no-auto-exposure', action='store_true', help='Disable auto exposure for IR and color cameras')
+    parser.add_argument('--no-llm', action='store_true', help='Disable LLM scene descriptions')
+    # Add resolution and frame rate parameters
+    parser.add_argument('--resolution', type=str, default='640x360', 
+                        choices=['1280x720', '848x480', '640x360', '480x270', '424x240'],
+                        help='Camera resolution (width x height)')
+    parser.add_argument('--fps', type=int, default=30, 
+                        choices=[5, 15, 30, 60, 90],
+                        help='Camera frame rate (fps)')
     args = parser.parse_args()
+    
+    # Print LLM status
+    if args.no_llm:
+        print("LLM disabled - using simple depth information only")
+    else:
+        # Only initialize LLM if needed
+        initialize_blip_model()
+    
+    # Parse resolution
+    width, height = map(int, args.resolution.split('x'))
     
     # Initialize MediaPipe Hands
     mp_hands = mp.solutions.hands
@@ -313,10 +329,14 @@ def main():
     
     # Create RealSense instance with depth filtering
     rs = PyRealSense(
+        width=width,
+        height=height,
+        framerate=args.fps,
         enable_color=args.enable_color,
         enable_ir=True,
         min_depth=args.min_depth,
-        max_depth=args.max_depth
+        max_depth=args.max_depth,
+        auto_exposure=not args.no_auto_exposure
     )
     
     # Set colormap based on argument
@@ -344,13 +364,17 @@ def main():
         # Only print essential camera info
         logger.info(f"Camera ready - {rs.camera_model_name}, {rs.frame_width}x{rs.frame_height} @ {rs.frame_rate}fps")
         logger.info(f"Auto-range: {'Disabled' if args.no_auto_range else 'Enabled'}, Colormap: {args.colormap}")
+        logger.info(f"LLM Descriptions: {'Disabled' if args.no_llm else 'Enabled'}")
         
         print("\nGesture Controls:")
         print("1. Two thumbs up 👍👍 to start recording")
         print("2. Two thumbs down 👎👎 to stop recording (>5 seconds to save)")
         print("3. Two open palms 🖐️🖐️ to cancel recording")
         print("4. Press 'q' to quit")
-        print("\n--- Scene Descriptions ---")
+        if not args.no_llm:
+            print("\n--- Scene Descriptions ---")
+        else:
+            print("\n--- Depth Information ---")
         
         recording = False
         output_dir = None
@@ -377,8 +401,26 @@ def main():
             if frames is None:
                 continue
             
-            depth_frame = frames['depth']
+            depth_frame = frames.get('depth')
             ir_frame = frames.get('infrared')
+            
+            # Safety check for missing frames
+            if depth_frame is None or ir_frame is None:
+                continue
+                
+            # Safety check for corrupted data
+            if not isinstance(depth_frame, np.ndarray) or not isinstance(ir_frame, np.ndarray):
+                continue
+                
+            # Safety check for empty arrays
+            if depth_frame.size == 0 or ir_frame.size == 0:
+                continue
+                
+            # Safety check for NaN values
+            if np.isnan(depth_frame).any() or np.isnan(ir_frame).any():
+                # Replace NaN with zeros
+                depth_frame = np.nan_to_num(depth_frame)
+                ir_frame = np.nan_to_num(ir_frame)
             
             # Auto-adjust depth range if enabled (quietly)
             if auto_range:
@@ -422,13 +464,13 @@ def main():
             
             # Generate new scene description every 3 seconds
             current_time = time.time()
-            if current_time - last_description_time >= 3.0:
+            if not args.no_llm and current_time - last_description_time >= 3.0:
                 # Redirect stdout during scene description to capture only explicit prints
                 sys.stdout = original_stdout
                 current_description = get_scene_description(depth_frame, ir_frame) or "Unable to generate scene description"
                 last_description_time = current_time
             
-            # Create enhanced depth visualization with current range
+            # Create simplified depth visualization with current range
             depth_colormap = create_enhanced_depth_colormap(
                 depth_frame, 
                 depth_min_running, 
@@ -436,10 +478,24 @@ def main():
                 selected_colormap
             )
             
-            if ir_frame is not None:
+            try:
+                # Process hand gestures and draw landmarks
                 gesture, results = detect_gesture(ir_frame, hands)
-                ir_viz = draw_hand_landmarks(ir_frame.copy(), results)
-                depth_viz = draw_hand_landmarks(depth_colormap.copy(), results)
+                
+                # Create visualization images (with error handling)
+                try:
+                    ir_viz = draw_hand_landmarks(ir_frame.copy(), results)
+                except Exception as e:
+                    print(f"Error drawing IR landmarks: {e}")
+                    ir_viz = ir_frame.copy()
+                    if len(ir_viz.shape) == 2:  # Convert grayscale to BGR for display
+                        ir_viz = cv2.cvtColor(ir_viz, cv2.COLOR_GRAY2BGR)
+                
+                try:
+                    depth_viz = draw_hand_landmarks(depth_colormap.copy(), results)
+                except Exception as e:
+                    print(f"Error drawing depth landmarks: {e}")
+                    depth_viz = depth_colormap.copy()
                 
                 # Handle gestures with minimal printing
                 if gesture == "thumbs_up" and not recording:
@@ -470,49 +526,73 @@ def main():
                         os.rmdir(output_dir)
                     output_dir = None
                 
-                # Create display image
-                display_image = np.hstack((depth_viz, ir_viz))
+                # Safety check for visualization images
+                if ir_viz is None or depth_viz is None or not isinstance(ir_viz, np.ndarray) or not isinstance(depth_viz, np.ndarray):
+                    print("Warning: Invalid visualization images")
+                    continue
+                    
+                if ir_viz.shape[0] != depth_viz.shape[0] or ir_viz.shape[1] != depth_viz.shape[1]:
+                    # Resize to match if dimensions don't match
+                    ir_viz = cv2.resize(ir_viz, (depth_viz.shape[1], depth_viz.shape[0]))
+                
+                # Create display image by stacking horizontally
+                try:
+                    display_image = np.hstack((depth_viz, ir_viz))
+                except Exception as e:
+                    print(f"Error creating display image: {e}")
+                    # Create a fallback image
+                    display_image = np.zeros((480, 1280, 3), dtype=np.uint8)
+                    cv2.putText(display_image, "Display Error", (500, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
                 
                 # Add scene description as subtitle
-                display_image = draw_subtitle(display_image, current_description)
+                try:
+                    display_image = draw_subtitle(display_image, current_description)
+                except Exception as e:
+                    print(f"Error drawing subtitle: {e}")
                 
                 # Save frame data if recording
                 if recording:
-                    metadata = {
-                        'timestamp': time.time() - start_time,
-                        'frame_index': frame_idx,
-                        'min_depth': depth_min_running,
-                        'max_depth': depth_max_running,
-                        'frame_rate': rs.frame_rate,
-                        'resolution': f"{rs.frame_width}x{rs.frame_height}",
-                        'scene_description': current_description
-                    }
-                    save_frame_data(output_dir, frame_idx, depth_frame, ir_frame, metadata)
-                    frame_idx += 1
-                    print(f"Recording frame {frame_idx}", end='\r')
-            
-            # Show recording status
-            status_text = "Recording..." if recording else "Ready"
-            status_color = (0, 0, 255) if recording else (0, 255, 0)
-            
-            if recording:
-                cv2.rectangle(display_image, (0, 0), (display_image.shape[1]-1, display_image.shape[0]-1), status_color, 10)
-            
-            text_size = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
-            text_x = (display_image.shape[1] - text_size[0]) // 2
-            cv2.rectangle(display_image, (text_x-10, 10), (text_x+text_size[0]+10, 50), (0, 0, 0), -1)
-            cv2.putText(display_image, status_text, (text_x, 40), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1, status_color, 2)
-            
-            if recording:
-                frame_text = f"Frame: {frame_idx}"
-                frame_text_size = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
-                frame_text_x = (display_image.shape[1] - frame_text_size[0]) // 2
-                cv2.rectangle(display_image, (frame_text_x-10, 60), (frame_text_x+frame_text_size[0]+10, 90), (0, 0, 0), -1)
-                cv2.putText(display_image, frame_text, (frame_text_x, 85), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
-            
-            cv2.imshow('RealSense', display_image)
+                    try:
+                        metadata = {
+                            'timestamp': time.time() - start_time,
+                            'frame_index': frame_idx,
+                            'min_depth': depth_min_running,
+                            'max_depth': depth_max_running,
+                            'frame_rate': rs.frame_rate,
+                            'resolution': f"{rs.frame_width}x{rs.frame_height}",
+                            'scene_description': current_description
+                        }
+                        save_frame_data(output_dir, frame_idx, depth_frame, ir_frame, metadata)
+                        frame_idx += 1
+                        print(f"Recording frame {frame_idx}", end='\r')
+                    except Exception as e:
+                        print(f"Error saving frame data: {e}")
+                
+                # Show recording status
+                status_text = "Recording..." if recording else "Ready"
+                status_color = (0, 0, 255) if recording else (0, 255, 0)
+                
+                if recording:
+                    cv2.rectangle(display_image, (0, 0), (display_image.shape[1]-1, display_image.shape[0]-1), status_color, 10)
+                
+                text_size = cv2.getTextSize(status_text, cv2.FONT_HERSHEY_SIMPLEX, 1, 2)[0]
+                text_x = (display_image.shape[1] - text_size[0]) // 2
+                cv2.rectangle(display_image, (text_x-10, 10), (text_x+text_size[0]+10, 50), (0, 0, 0), -1)
+                cv2.putText(display_image, status_text, (text_x, 40), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 1, status_color, 2)
+                
+                if recording:
+                    frame_text = f"Frame: {frame_idx}"
+                    frame_text_size = cv2.getTextSize(frame_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                    frame_text_x = (display_image.shape[1] - frame_text_size[0]) // 2
+                    cv2.rectangle(display_image, (frame_text_x-10, 60), (frame_text_x+frame_text_size[0]+10, 90), (0, 0, 0), -1)
+                    cv2.putText(display_image, frame_text, (frame_text_x, 85), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
+                
+                cv2.imshow('RealSense', display_image)
+                
+            except Exception as e:
+                print(f"Error in main loop: {e}")
             
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
