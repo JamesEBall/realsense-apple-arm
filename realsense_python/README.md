@@ -30,7 +30,7 @@ pip install realsense-applesilicon
 ### Core Dependencies
 
 - Python 3.8+
-- librealsense2 (system library)
+- librealsense
 - numpy>=1.19.0,<2.0.0
 - opencv-python>=4.5.0,<5.0.0
 - cython>=0.29.0,<1.0.0
