@@ -2,17 +2,3 @@
 numpy>=1.19.0,<2.0.0
 opencv-python>=4.5.0,<5.0.0
 cython>=0.29.0,<1.0.0
-
-# Testing dependencies
-pytest>=6.0.0,<7.0.0
-pytest-cov>=2.10.0,<3.0.0
-
-# Development dependencies
-black>=22.0.0  # Code formatting
-isort>=5.0.0   # Import sorting
-flake8>=3.9.0  # Code linting
-mypy>=0.900    # Type checking
-
-# Documentation
-sphinx>=4.0.0
-sphinx-rtd-theme>=1.0.0 
