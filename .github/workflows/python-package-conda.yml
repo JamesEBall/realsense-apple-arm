@@ -9,14 +9,17 @@ on:
 jobs:
   build:
     runs-on: macos-latest  # Using macOS for Apple Silicon compatibility
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.10', '3.11']
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: Set up Python
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'  # Using 3.9 as specified in your wheel name
+        python-version: ${{ matrix.python-version }}
     
     - name: Install Homebrew dependencies
       run: |
@@ -42,10 +45,10 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         path: realsense_python/dist/*
-        name: python-package
+        name: python-package-${{ matrix.python-version }}
     
     - name: Publish to PyPI
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.python-version == '3.9'
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI }}
