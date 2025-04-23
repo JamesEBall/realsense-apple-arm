@@ -1,10 +1,8 @@
 name: Python Package
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  release:
+    types: [published]
 
 jobs:
   build:
@@ -12,43 +10,43 @@ jobs:
     strategy:
       matrix:
         python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
-    
+
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
-    
+
     - name: Install Homebrew dependencies
       run: |
         brew install librealsense
-    
+
     - name: Install build dependencies
       run: |
         python -m pip install --upgrade pip
         pip install build twine
-    
+
     - name: Build package
       run: |
         cd realsense_python
         python -m build
-    
+
     - name: Test package
       run: |
         cd realsense_python
         pip install dist/*.whl
         python -c "import realsense.wrapper; print('Package imported successfully')"
-    
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         path: realsense_python/dist/*
         name: python-package-${{ matrix.python-version }}
-    
+
     - name: Publish to PyPI
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.python-version == '3.9'
+      if: matrix.python-version == '3.9'
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI }}
