@@ -20,7 +20,7 @@ jobs:
     
     - name: Install Homebrew dependencies
       run: |
-        brew install librealsense2
+        brew install librealsense
     
     - name: Install build dependencies
       run: |
