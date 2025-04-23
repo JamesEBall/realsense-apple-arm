@@ -28,25 +28,6 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
 ]
 
-[project.optional-dependencies]
-test = [
-    "pytest>=6.0.0,<7.0.0",
-    "pytest-cov>=2.10.0,<3.0.0",
-]
-dev = [
-    "black>=22.0.0",
-    "isort>=5.0.0",
-    "flake8>=3.9.0",
-    "mypy>=0.900",
-]
-docs = [
-    "sphinx>=4.0.0",
-    "sphinx-rtd-theme>=1.0.0",
-]
-all = [
-    "realsense-applesilicon[test,dev,docs]",
-]
-
 [tool.black]
 line-length = 88
 target-version = ["py38", "py39", "py310", "py311"]
