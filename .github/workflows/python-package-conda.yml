@@ -29,17 +29,19 @@ jobs:
     
     - name: Build package
       run: |
+        cd realsense_python
         python -m build
     
     - name: Test package
       run: |
+        cd realsense_python
         pip install dist/*.whl
         python -c "import realsense.wrapper; print('Package imported successfully')"
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
-        path: dist/*
+        path: realsense_python/dist/*
         name: python-package
     
     - name: Publish to PyPI
@@ -48,4 +50,5 @@ jobs:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI }}
       run: |
+        cd realsense_python
         twine upload dist/*
