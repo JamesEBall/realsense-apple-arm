@@ -72,9 +72,6 @@ cd realsense-applesilicon
 # Create and activate virtual environment
 python -m venv venv
 source venv/bin/activate
-
-# Install development dependencies
-pip install -e ".[dev,test,docs]"
 ```
 
 ### Running tests
@@ -83,19 +80,6 @@ pip install -e ".[dev,test,docs]"
 pytest tests/
 ```
 
-### Code formatting
-
-```bash
-# Format code
-black .
-
-# Sort imports
-isort .
-
-# Run linter
-flake8 .
-```
-
-## License
+### License
 
 MIT License
