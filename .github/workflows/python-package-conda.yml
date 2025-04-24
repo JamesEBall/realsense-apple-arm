@@ -5,30 +5,28 @@ on:
     types: [published]
 
 jobs:
-  build:
-    runs-on: macos-latest  # Using macOS for Apple Silicon compatibility
+  build-and-upload:
+    runs-on: macos-latest
     strategy:
       matrix:
-        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13']
+        python-version: ['3.9', '3.10', '3.11', '3.12']
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Needed to fetch tags/history
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
-    - name: Install Homebrew dependencies
+    - name: Install dependencies
       run: |
         brew install librealsense
+        python -m pip install --upgrade pip build twine setuptools_scm cython numpy wheel
 
-    - name: Install build dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install build twine
-
-    - name: Build package
+    - name: Build Package
       run: |
         cd realsense_python
         python -m build
@@ -39,17 +37,34 @@ jobs:
         pip install dist/*.whl
         python -c "import realsense.wrapper; print('Package imported successfully')"
 
-    - name: Upload artifacts
+    - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         path: realsense_python/dist/*
         name: python-package-${{ matrix.python-version }}
 
+  publish:
+    needs: build-and-upload
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install Twine
+      run: python -m pip install twine
+
+    - name: Download built artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: dist
+
     - name: Publish to PyPI
-      if: matrix.python-version == '3.9'
       env:
         TWINE_USERNAME: __token__
         TWINE_PASSWORD: ${{ secrets.PYPI }}
-      run: |
-        cd realsense_python
-        twine upload dist/*
+      run: twine upload dist/**/*.whl
