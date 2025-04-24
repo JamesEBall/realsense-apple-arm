@@ -1,9 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "Cython>=0.29.0", "numpy>=1.19.0", "setuptools_scm>=8.0"]
+requires = ["setuptools>=61.0", "wheel", "Cython>=0.29.0", "numpy>=1.19.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "realsense-applesilicon"
+version = "0.1.4"
 description = "Python wrapper for Intel RealSense cameras on Apple Silicon"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -16,7 +17,6 @@ dependencies = [
     "opencv-python>=4.5.0,<5.0.0",
     "cython>=0.29.0,<1.0.0",
 ]
-dynamic = ["version"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -35,8 +35,3 @@ target-version = ["py38", "py39", "py310", "py311"]
 [tool.isort]
 profile = "black"
 multi_line_output = 3
-
-[tool.setuptools_scm]
-write_to = "src/realsense/_version.py"
-version_scheme = "guess-next-dev"
-local_scheme = "node-and-date"

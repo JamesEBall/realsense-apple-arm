@@ -1,0 +1,46 @@
+name: Upload Python Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Set up Python
+      uses: actions/setup-python@v3
+      with:
+        python-version: '3.x'
+    - name: Get tag version
+      id: get_version
+      run: |
+        # Strip the 'v' prefix from tag
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+    - name: Update version in pyproject.toml
+      run: |
+        cd realsense_python
+        sed -i '' "s/version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+    - name: Install dependencies
+      run: |
+        cd realsense_python
+        python -m pip install --upgrade pip
+        pip install build
+    - name: Build package
+      run: |
+        cd realsense_python
+        python -m build
+    - name: Publish package
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      run: |
+        cd realsense_python
+        pip install twine
+        twine upload dist/* 
