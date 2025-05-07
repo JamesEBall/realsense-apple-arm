@@ -1,5 +1,51 @@
 # RealSense Examples for Apple Silicon
 
+## Cold Setup: Apple Silicon + pyenv + MediaPipe
+
+**Important:** For best compatibility (especially with MediaPipe), use Python 3.9 (or 3.10) via [pyenv](https://github.com/pyenv/pyenv) on Apple Silicon. MediaPipe does **not** support Python 3.12+ as of mid-2024.
+
+### Step-by-step cold setup
+
+1. **Install pyenv** (if not already):
+   ```sh
+   brew install pyenv
+   ```
+2. **Install Python 3.9:**
+   ```sh
+   pyenv install 3.9.18
+   ```
+3. **Set local Python version:**
+   ```sh
+   pyenv local 3.9.18
+   ```
+   This creates a `.python-version` file in your project root.
+4. **Create a virtual environment using pyenv's Python:**
+   ```sh
+   ~/.pyenv/versions/3.9.18/bin/python -m venv venv
+   source venv/bin/activate
+   ```
+   *Do not use `python3 -m venv venv` unless you are sure `python3` points to pyenv's Python 3.9!*
+5. **Upgrade pip and install dependencies:**
+   ```sh
+   pip install --upgrade pip
+   pip install -e ../realsense_python
+   pip install -r ../realsense_python/requirements.txt
+   pip install mediapipe plotly
+   ```
+6. **Run the example:**
+   ```sh
+   cd examples
+   python example.py
+   ```
+
+### Troubleshooting
+- If `mediapipe` fails to install, check your Python version (`python --version`). It must be 3.9 or 3.10.
+- If you see errors about missing RealSense modules, make sure you installed your local package with `pip install -e ../realsense_python` from your venv.
+- If you get OpenCV or numpy errors, try upgrading pip and reinstalling dependencies.
+- If you have an old venv, delete it and recreate it with the correct Python version.
+
+---
+
 This directory contains examples demonstrating the capabilities of Intel RealSense cameras on Apple Silicon Macs.
 
 ## Basic Example
